@@ -27,13 +27,19 @@ Unified workspace containing the Django REST backend and Flutter client for the 
    .\.venv\Scripts\Activate.ps1
    pip install -r backend\requirements.txt
    ```
-   If you skip this step, the bundled `backend\venv` will be used.
+   The repository includes `backend\requirements.txt` generated from the bundled environment. If you skip this step, the checked-in `backend\venv` will be used.
 3. Install Flutter dependencies:
    ```powershell
    cd flutter_app
    flutter pub get
    cd ..
    ```
+
+## Environment Configuration
+
+- Default settings (`backend/core/settings.py`) ship with `DEBUG=True`, `SECRET_KEY="change-me"`, and `ALLOWED_HOSTS=["*"]`. Update these before deploying anywhere outside local development.
+- The project uses SQLite by default (`backend/db.sqlite3`). If you switch to another database, update `DATABASES["default"]` and create the corresponding environment variables.
+- CORS is fully open (`CORS_ALLOW_ALL_ORIGINS = True`). Tighten this list for production builds.
 
 ## Running Everything
 
@@ -75,9 +81,11 @@ Adjust the `-d` flag for `chrome`, `edge`, `web-server`, or any connected device
 
 - Backend: `cd backend` then `python manage.py test`.
 - Flutter: `cd flutter_app` then `flutter test`.
+- Combined smoke test: run `flutter test test/widget_test.dart` after ensuring the main counter widget matches expectations.
 
 ## Troubleshooting
 
 - If the script cannot find `pubspec.yaml`, make sure you are running it from the repository root.
 - On first run, Flutter may need to download platform artifacts (allow time for that step).
 - To switch virtual environments, update or recreate `.\.venv`; the script will automatically pick it up on the next run.
+- If `run_all.ps1` complains about the Python interpreter, confirm that either `.\.venv` or `backend\venv` exists and contains an activated environment.
