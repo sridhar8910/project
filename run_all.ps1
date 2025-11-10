@@ -9,17 +9,18 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$projectRoot = $PSScriptRoot
+# Actual project structure: soulsupport_app is the root
+$projectRoot = Split-Path $PSScriptRoot -Parent
 $backendPath = Join-Path $projectRoot 'backend'
-$flutterPath = Join-Path $projectRoot 'flutter_app'
-$pythonExe = Join-Path $backendPath 'venv\Scripts\python.exe'
+$flutterPath = $projectRoot  # Flutter project is at root
+$pythonExe = Join-Path $projectRoot '.venv\Scripts\python.exe'
 
 if (!(Test-Path $pythonExe)) {
-    Write-Error "Python virtualenv not found at $pythonExe. Run 'python -m venv venv' inside backend and install requirements."
+    Write-Error "Python virtualenv not found at $pythonExe. Please ensure .venv exists in project root."
 }
 
 if (!(Test-Path (Join-Path $flutterPath 'pubspec.yaml'))) {
-    Write-Error "Flutter project not found at $flutterPath."
+    Write-Error "Flutter project (pubspec.yaml) not found at $flutterPath."
 }
 
 Write-Host "Starting Django backend..." -ForegroundColor Cyan
