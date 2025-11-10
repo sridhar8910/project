@@ -9,14 +9,20 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# Actual project structure: soulsupport_app is the root
-$projectRoot = Split-Path $PSScriptRoot -Parent
+# Determine project root relative to this script
+$projectRoot = $PSScriptRoot
 $backendPath = Join-Path $projectRoot 'backend'
-$flutterPath = $projectRoot  # Flutter project is at root
+$flutterPath = Join-Path $projectRoot 'flutter_app'
 $pythonExe = Join-Path $projectRoot '.venv\Scripts\python.exe'
+if (!(Test-Path $pythonExe)) {
+    $fallbackPythonExe = Join-Path $backendPath 'venv\Scripts\python.exe'
+    if (Test-Path $fallbackPythonExe) {
+        $pythonExe = $fallbackPythonExe
+    }
+}
 
 if (!(Test-Path $pythonExe)) {
-    Write-Error "Python virtualenv not found at $pythonExe. Please ensure .venv exists in project root."
+    Write-Error "Python virtualenv not found. Expected at $projectRoot\.venv or $backendPath\venv."
 }
 
 if (!(Test-Path (Join-Path $flutterPath 'pubspec.yaml'))) {
