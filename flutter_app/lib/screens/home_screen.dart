@@ -4,9 +4,29 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../services/api_client.dart';
+import 'legacy_advanced_care_support_page.dart';
+import 'legacy_affirmations_page.dart';
+import 'legacy_assessment_page.dart';
+import 'legacy_breathing_page.dart';
+import 'legacy_expert_connect_page.dart';
+import 'legacy_feature_detail_page.dart';
+import 'legacy_guidelines_page.dart';
+import 'legacy_insights_reports_page.dart';
+import 'legacy_journal_page.dart';
 import 'login_screen.dart';
+import 'meditation_page.dart';
+import 'mindcare_booster_page.dart';
+import 'music_page.dart';
+import 'history_center_page.dart';
+import 'support_groups_page.dart';
+import 'upcoming_sessions_page.dart';
+import 'wallet_page.dart';
 import 'wellness_journal_page.dart';
 import 'wellness_plan_page.dart';
+import 'professional_guidance_page.dart';
+import 'reports_analytics_page.dart';
+import 'schedule_session_page.dart';
+import 'settings_page.dart';
 
 class HomeScreen extends StatefulWidget {
   final Map<String, dynamic>? profile;
@@ -94,8 +114,10 @@ class DashboardPage extends StatefulWidget {
 }
 
 class _DashboardPageState extends State<DashboardPage> {
+  final ApiClient _api = ApiClient();
   double _moodValue = 3;
-  int _walletMinutes = 45;
+  int _walletMinutes = 0;
+  bool _walletLoading = false;
 
   late Map<String, dynamic> profile;
 
@@ -114,6 +136,9 @@ class _DashboardPageState extends State<DashboardPage> {
   void initState() {
     super.initState();
     profile = Map<String, dynamic>.from(widget.profile);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadWalletMinutes();
+    });
   }
 
   @override
@@ -123,6 +148,39 @@ class _DashboardPageState extends State<DashboardPage> {
       setState(() {
         profile = Map<String, dynamic>.from(widget.profile);
       });
+    }
+  }
+
+  Future<void> _loadWalletMinutes() async {
+    if (_walletLoading) return;
+    setState(() {
+      _walletLoading = true;
+    });
+    try {
+      final wallet = await _api.getWallet();
+      if (!mounted) return;
+      setState(() {
+        _walletMinutes = wallet.minutes;
+      });
+    } on ApiClientException catch (error) {
+      if (kDebugMode) {
+        debugPrint('Wallet load failed: ${error.message}');
+      }
+      if (mounted) {
+        setState(() {
+          _walletMinutes = 0;
+        });
+      }
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('Failed to load wallet: $error');
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _walletLoading = false;
+        });
+      }
     }
   }
 
@@ -159,6 +217,201 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   void _openFeature(String name) {
+    final normalized = name.toLowerCase();
+    if (normalized.contains('wellness plan') || normalized.contains('view plan')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const MyWellnessPlanPage()),
+      );
+      return;
+    }
+    if (normalized.contains('legacy journal')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const LegacyJournalPage()),
+      );
+      return;
+    }
+    if (normalized.contains('journal')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const WellnessJournalPage()),
+      );
+      return;
+    }
+    if (normalized.contains('legacy guidelines')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const LegacyGuidelinesPage()),
+      );
+      return;
+    }
+    if (normalized.contains('legacy expert')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const LegacyExpertConnectPage()),
+      );
+      return;
+    }
+    if (normalized.contains('legacy assessment')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const LegacyAssessmentPage()),
+      );
+      return;
+    }
+    if (normalized.contains('legacy breathing')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const LegacyBreathingPage()),
+      );
+      return;
+    }
+    if (normalized.contains('legacy affirmations')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const LegacyAffirmationsPage()),
+      );
+      return;
+    }
+    if (normalized.contains('legacy advanced care')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+            builder: (_) => const LegacyAdvancedCareSupportPage()),
+      );
+      return;
+    }
+    if (normalized.contains('legacy insights')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const LegacyInsightsReportsPage()),
+      );
+      return;
+    }
+    if (normalized.contains('legacy feature detail')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const LegacyFeatureDetailPage(),
+        ),
+      );
+      return;
+    }
+    if (normalized.contains('mindcare') || normalized.contains('booster')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const MindCareBoosterPage()),
+      );
+      return;
+    }
+    if (normalized.contains('meditation')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const MeditationPage()),
+      );
+      return;
+    }
+    if (normalized.contains('music')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const MusicPage()),
+      );
+      return;
+    }
+    if (normalized.contains('breathing')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const LegacyBreathingPage()),
+      );
+      return;
+    }
+    if (normalized.contains('affirmation')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const LegacyAffirmationsPage()),
+      );
+      return;
+    }
+    if (normalized.contains('assessment')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const LegacyAssessmentPage()),
+      );
+      return;
+    }
+    if (normalized.contains('advanced care')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+            builder: (_) => const LegacyAdvancedCareSupportPage()),
+      );
+      return;
+    }
+    if (normalized.contains('support group')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const SupportGroupsPage()),
+      );
+      return;
+    }
+    if (normalized.contains('schedule session')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const ScheduleSessionPage()),
+      );
+      return;
+    }
+    if (normalized == 'schedule') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const UpcomingSessionsPage()),
+      );
+      return;
+    }
+    if (normalized.contains('reports')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const ReportsAnalyticsPage()),
+      );
+      return;
+    }
+    if (normalized.contains('legacy insights')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const LegacyInsightsReportsPage()),
+      );
+      return;
+    }
+    if (normalized.contains('professional guidance')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const ProfessionalGuidancePage()),
+      );
+      return;
+    }
+    if (normalized.contains('settings')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const SettingsPage()),
+      );
+      return;
+    }
+    if (normalized.contains('wallet')) {
+      _openWallet();
+      return;
+    }
+    if (normalized.contains('recharge room')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const MindCareBoosterPage()),
+      );
+      return;
+    }
+    _showFeatureDetails(name);
+  }
+
+  void _showFeatureDetails(String name) {
     final Map<String, String> featureContents = {
       'My Wellness Plan': 'Personalized daily mental-wellness roadmap.\n\n'
           'Section 1: "Daily Tasks"\n'
@@ -252,6 +505,22 @@ class _DashboardPageState extends State<DashboardPage> {
           '• Short music burst (AI-generated calm sound)\n'
           '• Positive affirmation (text/voice)\n\n'
           '"Breathe in peace... exhale stress... you\'re doing great."',
+      'Legacy Journal':
+          'A standalone demo journal page that stores entries in-memory only. Useful for showcasing the original concept without backend connectivity.',
+      'Legacy Insights':
+          'Static insights and summary cards from the early prototype. Data shown here is mock content for presentation purposes.',
+      'Legacy Guidelines':
+          'Original community guidelines prototype. Helpful for comparing how the content evolved since the early designs.',
+      'Legacy Expert':
+          'Demo of the expert connect list using static counsellor data from the initial mockups.',
+      'Legacy Assessment':
+          'Early AI assessment walkthrough with canned questions and score feedback.',
+      'Legacy Breathing':
+          'Animated breathing exercise showcasing the first UI iteration. Runs entirely on-device.',
+      'Legacy Affirmations':
+          'Scrollable list of affirmations with copy/share actions, based on the prototype version.',
+      'Legacy Advanced Care':
+          'Legacy overview of advanced care services and specialists before backend wiring.',
       'Advanced Care Support':
           'Counsellor-guided pathway to specialized care.\n\n'
               'Appears when counsellor recommends doctor consultation:\n'
@@ -323,19 +592,13 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  void _openWallet() {
-    showModalBottomSheet<void>(
-      context: context,
-      builder: (_) => WalletSheet(
-        minutes: _walletMinutes,
-        onRecharge: (int add) {
-          setState(() {
-            _walletMinutes += add;
-          });
-          Navigator.pop(context);
-        },
-      ),
+  void _openWallet() async {
+    await Navigator.push<int>(
+      context,
+      MaterialPageRoute(builder: (_) => const WalletPage()),
     );
+    if (!mounted) return;
+    await _loadWalletMinutes();
   }
 
   void _openChatbot() {
@@ -366,20 +629,6 @@ class _DashboardPageState extends State<DashboardPage> {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const ChatWithCounsellorPage()),
-    );
-  }
-
-  void _openWellnessPlanPage() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const MyWellnessPlanPage()),
-    );
-  }
-
-  void _openWellnessJournalPage() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const WellnessJournalPage()),
     );
   }
 
@@ -645,7 +894,10 @@ class _DashboardPageState extends State<DashboardPage> {
                 ),
               ),
               ElevatedButton(
-                onPressed: () => _openFeature('View Plan'),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const UpcomingSessionsPage()),
+                ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.white,
                   foregroundColor: Colors.black,
@@ -701,7 +953,7 @@ class _DashboardPageState extends State<DashboardPage> {
           title: 'Wellness Journal',
           subtitle: 'Track Progress',
           iconColor: Colors.indigo,
-          onTap: _openWellnessJournalPage,
+          onTap: () => _openFeature('Journal'),
         ),
         _QuickCard(
           icon: Icons.groups_outlined,
@@ -824,15 +1076,63 @@ class _DashboardPageState extends State<DashboardPage> {
                   MaterialPageRoute(builder: (_) => const HistoryCenterPage())),
             ),
             _drawerTile('My Wellness Plan', Icons.insights,
-                _openWellnessPlanPage),
+                () => _openFeature('My Wellness Plan')),
             _drawerTile('Reports & Analytics', Icons.bar_chart,
                 () => _openFeature('Reports & Analytics')),
             _drawerTile(
-                'My Journal', Icons.book, _openWellnessJournalPage),
+                'My Journal', Icons.book, () => _openFeature('My Journal')),
+            _drawerTile(
+              'Legacy Journal (offline)',
+              Icons.bookmark_border,
+              () => _openFeature('Legacy Journal'),
+            ),
             _drawerTile('Schedule', Icons.calendar_today,
                 () => _openFeature('Schedule')),
             _drawerTile('Professional Guidance', Icons.medical_services,
                 () => _openFeature('Professional Guidance')),
+            _drawerTile(
+              'Legacy Insights (offline)',
+              Icons.analytics_outlined,
+              () => _openFeature('Legacy Insights'),
+            ),
+            _drawerTile(
+              'Legacy Guidelines (offline)',
+              Icons.rule,
+              () => _openFeature('Legacy Guidelines'),
+            ),
+            _drawerTile(
+              'Legacy Expert Connect',
+              Icons.groups_2_outlined,
+              () => _openFeature('Legacy Expert'),
+            ),
+            _drawerTile(
+              'Legacy Breathing',
+              Icons.self_improvement,
+              () => _openFeature('Legacy Breathing'),
+            ),
+            _drawerTile(
+              'Legacy Affirmations',
+              Icons.record_voice_over,
+              () => _openFeature('Legacy Affirmations'),
+            ),
+            _drawerTile(
+              'Legacy Assessment',
+              Icons.assignment,
+              () => _openFeature('Legacy Assessment'),
+            ),
+            _drawerTile(
+              'Legacy Advanced Care',
+              Icons.local_hospital,
+              () => _openFeature('Legacy Advanced Care'),
+            ),
+            _drawerTile(
+              'Settings',
+              Icons.settings,
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SettingsPage()),
+              ),
+            ),
             const Divider(),
             _drawerTile('About Us', Icons.info,
                 () => _openSimplePage(const AboutPage())),
@@ -1057,14 +1357,24 @@ class WellnessExtras extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 10),
-                  const Row(
+                  Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       _RechargePill(
-                          icon: Icons.self_improvement, label: 'Breathing'),
-                      _RechargePill(icon: Icons.music_note, label: 'Music'),
+                        icon: Icons.self_improvement,
+                        label: 'Breathing',
+                        onTap: () => onOpenFeature('Breathing'),
+                      ),
                       _RechargePill(
-                          icon: Icons.record_voice_over, label: 'Affirmations'),
+                        icon: Icons.music_note,
+                        label: 'Music',
+                        onTap: () => onOpenFeature('Music'),
+                      ),
+                      _RechargePill(
+                        icon: Icons.record_voice_over,
+                        label: 'Affirmations',
+                        onTap: () => onOpenFeature('Affirmations'),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 14),
@@ -1184,21 +1494,29 @@ class WellnessExtras extends StatelessWidget {
 class _RechargePill extends StatelessWidget {
   final IconData icon;
   final String label;
+  final VoidCallback? onTap;
 
-  const _RechargePill({required this.icon, required this.label});
+  const _RechargePill({
+    required this.icon,
+    required this.label,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        CircleAvatar(
-          radius: 28,
-          backgroundColor: _Palette.soft,
-          child: Icon(icon, color: _Palette.primary, size: 26),
-        ),
-        const SizedBox(height: 8),
-        Text(label, style: const TextStyle(color: _Palette.subtext)),
-      ],
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        children: [
+          CircleAvatar(
+            radius: 28,
+            backgroundColor: _Palette.soft,
+            child: Icon(icon, color: _Palette.primary, size: 26),
+          ),
+          const SizedBox(height: 8),
+          Text(label, style: const TextStyle(color: _Palette.subtext)),
+        ],
+      ),
     );
   }
 }
@@ -1229,113 +1547,6 @@ class FloatingChatWidget extends StatelessWidget {
         child: const Center(
           child: Icon(Icons.headset_mic, size: 28, color: Colors.white),
         ),
-      ),
-    );
-  }
-}
-
-class WalletSheet extends StatefulWidget {
-  final int minutes;
-  final ValueChanged<int> onRecharge;
-
-  const WalletSheet({
-    super.key,
-    required this.minutes,
-    required this.onRecharge,
-  });
-
-  @override
-  State<WalletSheet> createState() => _WalletSheetState();
-}
-
-class _WalletSheetState extends State<WalletSheet> {
-  int _money = 100;
-  final TextEditingController _customCtrl = TextEditingController();
-
-  @override
-  void dispose() {
-    _customCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      height: 260,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Wallet',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 12),
-          const Text('Add cash to your wallet:'),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            children: [100, 200, 300].map((amount) {
-              final selected = _money == amount;
-              return ChoiceChip(
-                label: Text('₹$amount'),
-                selected: selected,
-                onSelected: (_) {
-                  setState(() {
-                    _money = amount;
-                    _customCtrl.clear();
-                  });
-                },
-                selectedColor: _Palette.primary,
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _customCtrl,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    hintText: 'Custom amount (e.g. 150)',
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                  onChanged: (value) {
-                    final parsed = int.tryParse(value);
-                    if (parsed != null && parsed > 0) {
-                      setState(() => _money = parsed);
-                    }
-                  },
-                ),
-              ),
-              const SizedBox(width: 8),
-              TextButton(
-                onPressed: () {
-                  _customCtrl.clear();
-                  setState(() => _money = 100);
-                },
-                child: const Text('Reset'),
-              ),
-            ],
-          ),
-          const Spacer(),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () {
-                final minutesToAdd = (_money ~/ 10).clamp(1, 1000000);
-                widget.onRecharge(minutesToAdd);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _Palette.primary,
-                foregroundColor: Colors.white,
-              ),
-              child: Text('Recharge ₹$_money'),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -2381,189 +2592,6 @@ class ContactPage extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-class HistoryCenterPage extends StatefulWidget {
-  const HistoryCenterPage({super.key});
-
-  @override
-  State<HistoryCenterPage> createState() => _HistoryCenterPageState();
-}
-
-class _HistoryCenterPageState extends State<HistoryCenterPage>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-
-  final List<Map<String, dynamic>> chatHistory = List.generate(
-    8,
-    (i) => {
-      'name': 'Counsellor ${i + 1}',
-      'lastMessage': 'Session ${i + 1} summary available.',
-      'date': DateTime.now().subtract(Duration(days: i * 20)),
-    },
-  );
-
-  final List<Map<String, dynamic>> callHistory = List.generate(
-    6,
-    (i) => {
-      'with': 'Therapist ${i + 1}',
-      'duration': '${15 + i * 5} mins',
-      'date': DateTime.now().subtract(Duration(days: i * 25)),
-    },
-  );
-
-  final List<Map<String, dynamic>> transactions = List.generate(10, (i) {
-    final date = DateTime.now().subtract(Duration(days: i * 15));
-    final expired =
-        date.isBefore(DateTime.now().subtract(const Duration(days: 180)));
-    return {
-      'id': '#TXN${1000 + i}',
-      'amount': '${299 + (i * 50)} INR',
-      'method': i % 2 == 0 ? 'UPI' : 'Card',
-      'status': expired ? 'Expired' : 'Active',
-      'date': date,
-    };
-  });
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 3, vsync: this);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title:
-            const Text('History Center', style: TextStyle(color: Colors.black)),
-        iconTheme: const IconThemeData(color: Colors.black),
-        backgroundColor: Colors.white,
-        bottom: TabBar(
-          controller: _tabController,
-          labelColor: _Palette.primary,
-          tabs: const [
-            Tab(icon: Icon(Icons.chat_bubble_outline), text: 'Chat'),
-            Tab(icon: Icon(Icons.call_outlined), text: 'Calls'),
-            Tab(icon: Icon(Icons.payments_outlined), text: 'Payments'),
-          ],
-        ),
-      ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _buildChatHistory(),
-          _buildCallHistory(),
-          _buildPayments(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildChatHistory() {
-    return ListView.builder(
-      padding: const EdgeInsets.all(12),
-      itemCount: chatHistory.length,
-      itemBuilder: (context, index) {
-        final item = chatHistory[index];
-        return Card(
-          color: _Palette.cardBg,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: const BorderSide(color: _Palette.border),
-          ),
-          child: ListTile(
-            leading: const CircleAvatar(
-              backgroundColor: _Palette.primary,
-              child: Icon(Icons.person, color: Colors.white),
-            ),
-            title: Text(item['name'],
-                style: const TextStyle(color: _Palette.text)),
-            subtitle: Text(item['lastMessage']),
-            trailing: Text(
-              '${item['date'].day}/${item['date'].month}/${item['date'].year}',
-              style: const TextStyle(color: _Palette.subtext, fontSize: 12),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildCallHistory() {
-    return ListView.builder(
-      padding: const EdgeInsets.all(12),
-      itemCount: callHistory.length,
-      itemBuilder: (context, index) {
-        final call = callHistory[index];
-        return Card(
-          color: _Palette.cardBg,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: const BorderSide(color: _Palette.border),
-          ),
-          child: ListTile(
-            leading: const CircleAvatar(
-              backgroundColor: _Palette.primary,
-              child: Icon(Icons.call, color: Colors.white),
-            ),
-            title: Text(call['with'],
-                style: const TextStyle(color: _Palette.text)),
-            subtitle: Text('Duration: ${call['duration']}'),
-            trailing: Text(
-              '${call['date'].day}/${call['date'].month}/${call['date'].year}',
-              style: const TextStyle(color: _Palette.subtext, fontSize: 12),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildPayments() {
-    return ListView.builder(
-      padding: const EdgeInsets.all(12),
-      itemCount: transactions.length,
-      itemBuilder: (context, index) {
-        final txn = transactions[index];
-        final chipColor =
-            txn['status'] == 'Expired' ? Colors.redAccent : Colors.green;
-        return Card(
-          color: _Palette.cardBg,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: const BorderSide(color: _Palette.border),
-          ),
-          child: ListTile(
-            leading: const CircleAvatar(
-              backgroundColor: _Palette.soft,
-              child: Icon(Icons.receipt_long, color: _Palette.primary),
-            ),
-            title:
-                Text(txn['id'], style: const TextStyle(color: _Palette.text)),
-            subtitle: Text('${txn['method']} • ${txn['amount']}'),
-            trailing: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  '${txn['date'].day}/${txn['date'].month}/${txn['date'].year}',
-                  style: const TextStyle(fontSize: 12),
-                ),
-                const SizedBox(height: 4),
-                Chip(
-                  label: Text(txn['status'],
-                      style:
-                          const TextStyle(color: Colors.white, fontSize: 11)),
-                  backgroundColor: chipColor,
-                  visualDensity: VisualDensity.compact,
-                ),
-              ],
-            ),
-          ),
-        );
-      },
     );
   }
 }

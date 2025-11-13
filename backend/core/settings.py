@@ -89,3 +89,36 @@ SIMPLE_JWT = {
 
 CORS_ALLOW_ALL_ORIGINS = True
 
+# Email configuration -------------------------------------------------------
+# In development we dump emails to the console so you can see OTP codes.
+# Override these in production with your SMTP provider credentials.
+# EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+# DEFAULT_FROM_EMAIL = "Soul Support <no-reply@soulsupport.example>"
+
+# Example production overrides:
+# EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+# EMAIL_HOST = "smtp.sendgrid.net"
+# EMAIL_PORT = 587
+# EMAIL_HOST_USER = os.environ.get("SENDGRID_USERNAME")
+# EMAIL_HOST_PASSWORD = os.environ.get("SENDGRID_PASSWORD")
+# EMAIL_USE_TLS = True
+# --- Email Configuration ---
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = 'python.nexnoratech@gmail.com'
+EMAIL_HOST_PASSWORD = 'aazm gwze vplo kehg'
+DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+
+# Optional: Email verification
+def verified_callback(user):
+    user.is_active = True
+    user.is_verified = True
+    user.save()
+
+EMAIL_VERIFIED_CALLBACK = verified_callback
+EMAIL_FROM_ADDRESS = 'python.nexnoratech@gmail.com'
+EMAIL_MAIL_SUBJECT = 'Verify your email'
+EMAIL_PAGE_TEMPLATE = 'email_verification.html'
+EMAIL_PAGE_DOMAIN = 'http://localhost:8000'

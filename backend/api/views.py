@@ -1,16 +1,57 @@
+import logging
+import secrets
+from collections import defaultdict
+from datetime import datetime
+
 from django.contrib.auth.models import User
+from django.core.mail import send_mail
+from django.db import transaction
+from django.db.models import Avg, Count, Max
+from django.db.models.functions import TruncDate
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import UserProfile
-from .serializers import (
-    MoodUpdateSerializer,
-    RegisterSerializer,
-    UserProfileSerializer,
-    WalletRechargeSerializer,
+from .models import (
+    EmailOTP,
+    GuidanceResource,
+    MeditationSession,
+    MindCareBooster,
+    MoodLog,
+    MusicTrack,
+    SupportGroup,
+    SupportGroupMembership,
+    UpcomingSession,
+    UserProfile,
+    WellnessJournalEntry,
+    WellnessTask,
 )
+from .serializers import (
+    GuidanceResourceSerializer,
+    MeditationSessionSerializer,
+    MindCareBoosterSerializer,
+    MoodUpdateSerializer,
+    MusicTrackSerializer,
+    QuickSessionSerializer,
+    RegisterSerializer,
+    SendOTPSerializer,
+    SupportGroupJoinSerializer,
+    SupportGroupSerializer,
+    UpcomingSessionSerializer,
+    UserProfileSerializer,
+    UserSettingsSerializer,
+    VerifyOTPSerializer,
+    WalletRechargeSerializer,
+    WellnessJournalEntrySerializer,
+    WellnessTaskSerializer,
+)
+from .serializers import EmailOrUsernameTokenObtainPairSerializer
+from rest_framework_simplejwt.views import TokenObtainPairView
+
+
+logger = logging.getLogger(__name__)
 
 
 class RegisterView(generics.CreateAPIView):
@@ -26,6 +67,22 @@ class ProfileView(generics.RetrieveUpdateAPIView):
     def get_object(self):
         profile, _created = UserProfile.objects.get_or_create(user=self.request.user)
         return profile
+
+
+class UserSettingsView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        profile, _ = UserProfile.objects.get_or_create(user=request.user)
+        serializer = UserSettingsSerializer(profile)
+        return Response(serializer.data)
+
+    def put(self, request):
+        profile, _ = UserProfile.objects.get_or_create(user=request.user)
+        serializer = UserSettingsSerializer(profile, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
 
 
 class DashboardView(APIView):
@@ -66,6 +123,7 @@ class MoodUpdateView(APIView):
         profile.last_mood = serializer.validated_data["value"]
         profile.last_mood_updated = timezone.now()
         profile.save(update_fields=["last_mood", "last_mood_updated"])
+        MoodLog.objects.create(user=request.user, value=profile.last_mood)
         return Response(
             {
                 "status": "ok",
@@ -73,6 +131,238 @@ class MoodUpdateView(APIView):
                 "updated_at": profile.last_mood_updated,
             }
         )
+
+
+# Legacy content payloads -------------------------------------------------
+
+LEGACY_GUIDELINES = [
+    {
+        "title": "Respect & Confidentiality",
+        "bullets": [
+            "Treat all members with dignity and respect.",
+            "Never share personal information without consent.",
+            "Maintain strict confidentiality of others’ stories.",
+            "What is shared in the community stays in the community.",
+        ],
+    },
+    {
+        "title": "Responsible Communication",
+        "bullets": [
+            "Use kind and supportive language.",
+            "Avoid judgment, criticism, or dismissive comments.",
+            "Listen actively and empathetically.",
+            "Share personal experiences, not medical advice.",
+        ],
+    },
+    {
+        "title": "Content Standards",
+        "bullets": [
+            "No hate speech, discrimination, or harassment.",
+            "No self-harm, suicide, or crisis content.",
+            "No spam, advertisements, or commercial promotion.",
+            "No illegal content or activities.",
+        ],
+    },
+    {
+        "title": "Crisis Support",
+        "bullets": [
+            "If experiencing a crisis, contact emergency services.",
+            "Call our 24/7 crisis hotline for immediate help.",
+            "Book an urgent counselling session.",
+            "Crisis support is not a replacement for professional help.",
+        ],
+    },
+    {
+        "title": "Privacy & Data Protection",
+        "bullets": [
+            "Your data is encrypted and protected.",
+            "We never sell or share personal information.",
+            "You can request data deletion anytime.",
+            "Anonymous usage options are available.",
+        ],
+    },
+]
+
+LEGACY_COUNSELLORS = [
+    {
+        "name": "Dr. Aisha Khan",
+        "expertise": ["Stress", "Anxiety"],
+        "rating": 4.8,
+        "languages": ["English", "Hindi"],
+        "tagline": "Helping you find calm and clarity.",
+        "is_available_now": True,
+    },
+    {
+        "name": "Rahul Mehta",
+        "expertise": ["Career", "Relationship"],
+        "rating": 4.5,
+        "languages": ["English", "Hindi"],
+        "tagline": "Guiding you through life’s big decisions.",
+        "is_available_now": False,
+    },
+    {
+        "name": "Sofia Fernandez",
+        "expertise": ["Depression", "Stress"],
+        "rating": 4.9,
+        "languages": ["English"],
+        "tagline": "Compassionate support for brighter days.",
+        "is_available_now": True,
+    },
+]
+
+LEGACY_ASSESSMENT_QUESTIONS = [
+    {
+        "question": "How have you been feeling lately?",
+        "options": ["Very low", "Low", "Neutral", "Positive", "Very positive"],
+    },
+    {
+        "question": "How is your sleep quality?",
+        "options": ["Poor", "Fair", "Average", "Good", "Excellent"],
+    },
+    {
+        "question": "How often do you feel anxious?",
+        "options": ["Rarely", "Sometimes", "Often", "Very often", "Always"],
+    },
+]
+
+LEGACY_ADVANCED_SERVICES = [
+    {
+        "title": "Professional Counseling",
+        "description": "Connect with licensed therapists and counselors for personalized support.",
+        "benefits": [
+            "One-on-one sessions",
+            "Personalized treatment plans",
+            "Confidential support",
+            "Flexible scheduling",
+        ],
+    },
+    {
+        "title": "Psychiatric Consultation",
+        "description": "Expert psychiatric evaluation and medication management when needed.",
+        "benefits": [
+            "Clinical assessment",
+            "Medication guidance",
+            "Crisis intervention",
+            "Treatment planning",
+        ],
+    },
+    {
+        "title": "Family Therapy",
+        "description": "Strengthen relationships and improve communication with family members.",
+        "benefits": [
+            "Family sessions",
+            "Conflict resolution",
+            "Communication skills",
+            "Support networks",
+        ],
+    },
+]
+
+LEGACY_ADVANCED_SPECIALISTS = [
+    {
+        "name": "Dr. Sarah Johnson",
+        "specialization": "Clinical Psychology",
+        "experience_years": 15,
+    },
+    {
+        "name": "Dr. Rajesh Patel",
+        "specialization": "Psychiatry",
+        "experience_years": 12,
+    },
+    {
+        "name": "Emma Wilson",
+        "specialization": "Family Therapy",
+        "experience_years": 10,
+    },
+]
+
+LEGACY_FEATURE_DETAIL = {
+    "title": "Legacy Feature Detail",
+    "sections": [
+        {
+            "heading": "Overview",
+            "bullets": [
+                "This is the original feature detail demo page.",
+                "Content is static and for presentation purposes only.",
+            ],
+        },
+        {
+            "heading": "Next steps",
+            "bullets": [
+                "Review how stories were structured in the prototype.",
+                "Compare against the live feature implementation.",
+            ],
+        },
+    ],
+}
+
+
+class LegacyGuidelinesView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        return Response({"sections": LEGACY_GUIDELINES})
+
+
+class LegacyExpertConnectView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        return Response({"counsellors": LEGACY_COUNSELLORS})
+
+
+class LegacyBreathingView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        return Response(
+            {
+                "cycle_options": [4, 5, 6, 8, 10],
+                "tip": "For calm, try 6–8 second cycles. If you feel lightheaded stop and return to normal breathing.",
+            }
+        )
+
+
+class LegacyAssessmentView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        return Response({"questions": LEGACY_ASSESSMENT_QUESTIONS})
+
+
+class LegacyAffirmationsView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        return Response(
+            {
+                "affirmations": [
+                    "I am worthy of care and respect.",
+                    "I breathe in calm and exhale tension.",
+                    "I am capable of handling what comes my way.",
+                    "I give myself permission to rest and heal.",
+                ]
+            }
+        )
+
+
+class LegacyAdvancedCareSupportView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        return Response(
+            {
+                "services": LEGACY_ADVANCED_SERVICES,
+                "specialists": LEGACY_ADVANCED_SPECIALISTS,
+            }
+        )
+
+
+class LegacyFeatureDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        return Response(LEGACY_FEATURE_DETAIL)
 
 
 class WalletRechargeView(APIView):
@@ -90,3 +380,510 @@ class WalletRechargeView(APIView):
             status=status.HTTP_200_OK,
         )
 
+
+class WalletDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        profile, _ = UserProfile.objects.get_or_create(user=request.user)
+        return Response({"wallet_minutes": profile.wallet_minutes})
+
+
+DEFAULT_WELLNESS_TASKS = {
+    WellnessTask.DAILY: [
+        "Meditation (10 min)",
+        "Drink 2L Water",
+        "Gratitude Note",
+    ],
+    WellnessTask.EVENING: [
+        "Journaling (5 min)",
+        "Reflect on 3 positive things",
+    ],
+}
+
+
+class WellnessTaskListCreateView(generics.ListCreateAPIView):
+    serializer_class = WellnessTaskSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return (
+            WellnessTask.objects.filter(user=self.request.user)
+            .order_by("category", "order", "id")
+            .all()
+        )
+
+    def list(self, request, *args, **kwargs):
+        self._ensure_default_tasks(request.user)
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        items = list(serializer.data)
+        grouped = {
+            WellnessTask.DAILY: [item for item in items if item["category"] == WellnessTask.DAILY],
+            WellnessTask.EVENING: [item for item in items if item["category"] == WellnessTask.EVENING],
+        }
+        total = len(items)
+        completed = sum(1 for item in items if item["is_completed"])
+        return Response(
+            {
+                "tasks": items,
+                "grouped": grouped,
+                "summary": {
+                    "total": total,
+                    "completed": completed,
+                },
+            }
+        )
+
+    def perform_create(self, serializer):
+        category = serializer.validated_data.get("category", WellnessTask.DAILY)
+        next_order = (
+            WellnessTask.objects.filter(user=self.request.user, category=category).aggregate(Max("order"))[
+                "order__max"
+            ]
+            or 0
+        )
+        serializer.save(user=self.request.user, order=next_order + 1)
+
+    def _ensure_default_tasks(self, user):
+        if WellnessTask.objects.filter(user=user).exists():
+            return
+        to_create = []
+        for category, titles in DEFAULT_WELLNESS_TASKS.items():
+            for index, title in enumerate(titles, start=1):
+                to_create.append(
+                    WellnessTask(
+                        user=user,
+                        title=title,
+                        category=category,
+                        order=index,
+                    )
+                )
+        WellnessTask.objects.bulk_create(to_create)
+
+
+class WellnessTaskDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = WellnessTaskSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    lookup_url_kwarg = "task_id"
+
+    def get_queryset(self):
+        return WellnessTask.objects.filter(user=self.request.user)
+
+
+DEFAULT_SUPPORT_GROUPS = [
+    {
+        "slug": "anxiety-support",
+        "name": "Anxiety Support",
+        "description": "Discuss and manage anxiety together.",
+        "icon": "people_alt_rounded",
+    },
+    {
+        "slug": "career-stress",
+        "name": "Career Stress",
+        "description": "Talk about workplace pressure and burnout.",
+        "icon": "work_outline_rounded",
+    },
+    {
+        "slug": "relationships",
+        "name": "Relationships",
+        "description": "Express emotions and build healthy connections.",
+        "icon": "favorite_outline_rounded",
+    },
+    {
+        "slug": "general-awareness",
+        "name": "General Awareness",
+        "description": "Learn self-care and mental health awareness.",
+        "icon": "self_improvement_rounded",
+    },
+]
+
+
+class SupportGroupListView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        self._ensure_default_groups()
+        queryset = SupportGroup.objects.all()
+        serializer = SupportGroupSerializer(
+            queryset,
+            many=True,
+            context={"request": request},
+        )
+        joined_count = SupportGroupMembership.objects.filter(user=request.user).count()
+        return Response(
+            {
+                "groups": serializer.data,
+                "joined_count": joined_count,
+            }
+        )
+
+    def post(self, request):
+        serializer = SupportGroupJoinSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        slug = serializer.validated_data["slug"]
+        action = serializer.validated_data["action"]
+        group = get_object_or_404(SupportGroup, slug=slug)
+
+        if action == "join":
+            SupportGroupMembership.objects.get_or_create(user=request.user, group=group)
+        else:
+            SupportGroupMembership.objects.filter(user=request.user, group=group).delete()
+
+        updated = SupportGroupSerializer(group, context={"request": request}).data
+        return Response({"status": "ok", "group": updated})
+
+    def _ensure_default_groups(self):
+        existing_slugs = set(SupportGroup.objects.values_list("slug", flat=True))
+        to_create = []
+        for item in DEFAULT_SUPPORT_GROUPS:
+            if item["slug"] in existing_slugs:
+                continue
+            to_create.append(
+                SupportGroup(
+                    slug=item["slug"],
+                    name=item["name"],
+                    description=item["description"],
+                    icon=item["icon"],
+                )
+            )
+        if to_create:
+            SupportGroup.objects.bulk_create(to_create)
+
+
+class UpcomingSessionListCreateView(generics.ListCreateAPIView):
+    serializer_class = UpcomingSessionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return UpcomingSession.objects.filter(user=self.request.user).order_by("start_time", "id")
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+
+class UpcomingSessionDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = UpcomingSessionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    lookup_url_kwarg = "session_id"
+
+    def get_queryset(self):
+        return UpcomingSession.objects.filter(user=self.request.user)
+
+
+class QuickSessionView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = QuickSessionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        session_date = serializer.validated_data["date"]
+        session_time = serializer.validated_data["time"]
+        start_naive = datetime.combine(session_date, session_time)
+        start_at = timezone.make_aware(start_naive, timezone.get_current_timezone())
+
+        session = UpcomingSession.objects.create(
+            user=request.user,
+            title=serializer.validated_data.get("title") or "Counselling Session",
+            session_type="one_on_one",
+            start_time=start_at,
+            counsellor_name="Assigned Counsellor",
+            notes=serializer.validated_data.get("notes", ""),
+            is_confirmed=False,
+        )
+        return Response(
+            {
+                "status": "scheduled",
+                "session": UpcomingSessionSerializer(session).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class WellnessJournalEntryListCreateView(generics.ListCreateAPIView):
+    serializer_class = WellnessJournalEntrySerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return WellnessJournalEntry.objects.filter(user=self.request.user).order_by("-created_at", "-id")
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({"entries": serializer.data})
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+
+class WellnessJournalEntryDetailView(generics.RetrieveDestroyAPIView):
+    serializer_class = WellnessJournalEntrySerializer
+    permission_classes = [permissions.IsAuthenticated]
+    lookup_url_kwarg = "entry_id"
+
+    def get_queryset(self):
+        return WellnessJournalEntry.objects.filter(user=self.request.user)
+
+
+class RegistrationSendOTPView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = SendOTPSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"]
+
+        with transaction.atomic():
+            EmailOTP.objects.filter(email=email, purpose=EmailOTP.PURPOSE_REGISTRATION).delete()
+            code = f"{secrets.randbelow(1_000_000):06d}"
+            token = secrets.token_urlsafe(32)
+            otp = EmailOTP.objects.create(
+                email=email,
+                code=code,
+                purpose=EmailOTP.PURPOSE_REGISTRATION,
+                token=token,
+                expires_at=timezone.now() + timezone.timedelta(minutes=10),
+            )
+
+        logger.info("Registration OTP for %s is %s", email, code)
+        print(f"[OTP] Registration code for {email}: {code}")
+
+        send_mail(
+            subject="Your Soul Support verification code",
+            message=f"Use this code to finish your sign up: {otp.code}. It expires in 10 minutes.",
+            from_email=None,
+            recipient_list=[email],
+            fail_silently=False,
+        )
+
+        return Response({"status": "sent"})
+
+
+class RegistrationVerifyOTPView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = VerifyOTPSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        otp: EmailOTP = serializer.validated_data["otp"]
+        otp.mark_verified()
+        return Response({"status": "verified", "token": otp.token})
+
+
+class EmailOrUsernameTokenObtainPairView(TokenObtainPairView):
+    serializer_class = EmailOrUsernameTokenObtainPairSerializer
+
+
+class ReportsAnalyticsView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        now = timezone.now()
+        seven_days_ago = now - timezone.timedelta(days=6)
+        thirty_days_ago = now - timezone.timedelta(days=29)
+
+        weekly_logs = (
+            MoodLog.objects.filter(user=user, recorded_at__date__gte=seven_days_ago.date())
+            .annotate(day=TruncDate("recorded_at"))
+            .values("day")
+            .annotate(average=Avg("value"), count=Count("id"))
+            .order_by("day")
+        )
+        monthly_logs = (
+            MoodLog.objects.filter(user=user, recorded_at__date__gte=thirty_days_ago.date())
+            .annotate(day=TruncDate("recorded_at"))
+            .values("day")
+            .annotate(average=Avg("value"), count=Count("id"))
+            .order_by("day")
+        )
+
+        weekly_data = [
+            {"date": entry["day"].isoformat(), "average": round(entry["average"], 2), "count": entry["count"]}
+            for entry in weekly_logs
+        ]
+        monthly_data = [
+            {"date": entry["day"].isoformat(), "average": round(entry["average"], 2), "count": entry["count"]}
+            for entry in monthly_logs
+        ]
+
+        tasks_qs = WellnessTask.objects.filter(user=user)
+        tasks_total = tasks_qs.count()
+        tasks_completed = tasks_qs.filter(is_completed=True).count()
+        tasks_daily = tasks_qs.filter(category=WellnessTask.DAILY).count()
+        tasks_evening = tasks_qs.filter(category=WellnessTask.EVENING).count()
+        completion_rate = (tasks_completed / tasks_total) if tasks_total else 0
+
+        top_tasks = list(
+            tasks_qs.values("title")
+            .annotate(total=Count("id"))
+            .order_by("-total", "title")[:5]
+        )
+
+        sessions_qs = UpcomingSession.objects.filter(user=user)
+        total_sessions = sessions_qs.count()
+        upcoming_sessions = sessions_qs.filter(start_time__gte=now).count()
+        past_sessions = total_sessions - upcoming_sessions
+
+        profile, _ = UserProfile.objects.get_or_create(user=user)
+
+        if completion_rate >= 0.7 and weekly_data:
+            insight = "Fantastic consistency! You're completing most of your planned tasks."
+        elif upcoming_sessions == 0 and total_sessions > 0:
+            insight = "You have no upcoming sessions. Consider booking a follow-up to stay on track."
+        elif profile.last_mood <= 2:
+            insight = "Your recent mood updates seem low. Try a relaxation activity or journaling."
+        else:
+            insight = "Great work staying engaged with your wellness plan. Keep the momentum going!"
+
+        return Response(
+            {
+                "mood": {
+                    "weekly": weekly_data,
+                    "monthly": monthly_data,
+                },
+                "tasks": {
+                    "total": tasks_total,
+                    "completed": tasks_completed,
+                    "completion_rate": round(completion_rate, 2),
+                    "by_category": {
+                        "daily": tasks_daily,
+                        "evening": tasks_evening,
+                    },
+                    "top_tasks": top_tasks,
+                },
+                "sessions": {
+                    "total": total_sessions,
+                    "upcoming": upcoming_sessions,
+                    "completed": past_sessions if past_sessions > 0 else 0,
+                },
+                "wallet": {"minutes": profile.wallet_minutes},
+                "insight": insight,
+            }
+        )
+
+
+class ProfessionalGuidanceListView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        resource_type = request.query_params.get("type")
+        category = request.query_params.get("category")
+        featured = request.query_params.get("featured")
+
+        queryset = GuidanceResource.objects.all()
+        if resource_type:
+            queryset = queryset.filter(resource_type=resource_type)
+        if category:
+            queryset = queryset.filter(category__iexact=category)
+        if featured:
+            queryset = queryset.filter(is_featured=True)
+
+        serializer = GuidanceResourceSerializer(queryset, many=True)
+        categories = (
+            GuidanceResource.objects.exclude(category="")
+            .order_by("category")
+            .values_list("category", flat=True)
+            .distinct()
+        )
+        return Response(
+            {
+                "resources": serializer.data,
+                "categories": list(categories),
+            }
+        )
+
+
+class MusicTrackListView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        mood = request.query_params.get("mood")
+        queryset = MusicTrack.objects.all()
+        if mood:
+            queryset = queryset.filter(mood=mood)
+
+        serializer = MusicTrackSerializer(queryset, many=True)
+        moods = (
+            MusicTrack.objects.order_by("mood")
+            .values_list("mood", flat=True)
+            .distinct()
+        )
+        return Response(
+            {
+                "tracks": serializer.data,
+                "moods": list(moods),
+                "count": queryset.count(),
+            }
+        )
+
+
+class MindCareBoosterListView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        category = request.query_params.get("category")
+        queryset = MindCareBooster.objects.all()
+        if category:
+            queryset = queryset.filter(category=category)
+
+        serializer = MindCareBoosterSerializer(queryset, many=True)
+        grouped: dict[str, list[dict]] = defaultdict(list)
+        for item in serializer.data:
+            grouped[item["category"]].append(item)
+
+        categories = (
+            MindCareBooster.objects.order_by("category")
+            .values_list("category", flat=True)
+            .distinct()
+        )
+        grouped_dict = {key: value for key, value in grouped.items()}
+        return Response(
+            {
+                "boosters": serializer.data,
+                "categories": list(categories),
+                "grouped": grouped_dict,
+            }
+        )
+
+
+class MeditationSessionListView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        category = request.query_params.get("category")
+        difficulty = request.query_params.get("difficulty")
+        featured = request.query_params.get("featured")
+
+        queryset = MeditationSession.objects.all()
+        if category:
+            queryset = queryset.filter(category__iexact=category)
+        if difficulty:
+            queryset = queryset.filter(difficulty=difficulty)
+        if featured:
+            queryset = queryset.filter(is_featured=True)
+
+        serializer = MeditationSessionSerializer(queryset, many=True)
+        grouped: dict[str, list[dict]] = defaultdict(list)
+        featured_items = []
+        for item in serializer.data:
+            grouped[item["category"]].append(item)
+            if item["is_featured"]:
+                featured_items.append(item)
+
+        categories = (
+            MeditationSession.objects.order_by("category")
+            .values_list("category", flat=True)
+            .distinct()
+        )
+        grouped_dict = {key: value for key, value in grouped.items()}
+        return Response(
+            {
+                "sessions": serializer.data,
+                "categories": list(categories),
+                "grouped": grouped_dict,
+                "featured": featured_items,
+            }
+        )

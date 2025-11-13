@@ -21,7 +21,13 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _bootstrap() async {
-    final profile = await _api.getProfile();
+    Map<String, dynamic>? profile;
+    try {
+      profile = await _api.getProfile();
+    } catch (error, stackTrace) {
+      debugPrint('Splash bootstrap failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
     if (!mounted) return;
     Navigator.pushReplacement(
       context,

@@ -10,6 +10,7 @@ dependencies:
     sdk: flutter
   http: ^1.2.2
   flutter_secure_storage: ^9.2.2
+  intl: ^0.19.0
 
 dev_dependencies:
   flutter_test:
@@ -17,4 +18,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/images/soul_support_logo.png
 
