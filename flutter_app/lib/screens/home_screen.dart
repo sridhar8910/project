@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 
 import '../services/api_client.dart';
 import 'login_screen.dart';
+import 'wellness_journal_page.dart';
+import 'wellness_plan_page.dart';
 
 class HomeScreen extends StatefulWidget {
   final Map<String, dynamic>? profile;
@@ -367,6 +369,20 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
+  void _openWellnessPlanPage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const MyWellnessPlanPage()),
+    );
+  }
+
+  void _openWellnessJournalPage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const WellnessJournalPage()),
+    );
+  }
+
   String get _displayName {
     final fullName = profile['full_name'] as String? ?? '';
     if (fullName.isNotEmpty) return fullName;
@@ -685,7 +701,7 @@ class _DashboardPageState extends State<DashboardPage> {
           title: 'Wellness Journal',
           subtitle: 'Track Progress',
           iconColor: Colors.indigo,
-          onTap: () => _openFeature('Journal'),
+          onTap: _openWellnessJournalPage,
         ),
         _QuickCard(
           icon: Icons.groups_outlined,
@@ -808,11 +824,11 @@ class _DashboardPageState extends State<DashboardPage> {
                   MaterialPageRoute(builder: (_) => const HistoryCenterPage())),
             ),
             _drawerTile('My Wellness Plan', Icons.insights,
-                () => _openFeature('My Wellness Plan')),
+                _openWellnessPlanPage),
             _drawerTile('Reports & Analytics', Icons.bar_chart,
                 () => _openFeature('Reports & Analytics')),
             _drawerTile(
-                'My Journal', Icons.book, () => _openFeature('My Journal')),
+                'My Journal', Icons.book, _openWellnessJournalPage),
             _drawerTile('Schedule', Icons.calendar_today,
                 () => _openFeature('Schedule')),
             _drawerTile('Professional Guidance', Icons.medical_services,
