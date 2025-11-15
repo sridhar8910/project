@@ -49,6 +49,7 @@ class _HomeScreenState extends State<HomeScreen> {
       'username': data['username'] ?? '',
       'email': data['email'] ?? '',
       'full_name': data['full_name'] ?? '',
+      'nickname': data['nickname'] ?? '',
       'phone': data['phone'] ?? '',
       'age': data['age'],
       'gender': data['gender'] ?? '',
@@ -126,8 +127,9 @@ class _DashboardPageState extends State<DashboardPage> {
   bool _moodUpdating = false;
   String? _timeZoneName;
 
-  int _walletMinutes = 0;
+  int _walletAmount = 0;
   bool _walletLoading = false;
+  Map<String, int> _walletMinimums = const {"call": 100, "chat": 50};
 
   late Map<String, dynamic> profile;
 
@@ -147,7 +149,7 @@ class _DashboardPageState extends State<DashboardPage> {
     super.initState();
     profile = Map<String, dynamic>.from(widget.profile);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadWalletMinutes();
+      _loadWalletBalance();
     });
     _initMoodState();
   }
@@ -162,7 +164,7 @@ class _DashboardPageState extends State<DashboardPage> {
     }
   }
 
-  Future<void> _loadWalletMinutes() async {
+  Future<void> _loadWalletBalance() async {
     if (_walletLoading) return;
     setState(() {
       _walletLoading = true;
@@ -171,7 +173,8 @@ class _DashboardPageState extends State<DashboardPage> {
       final wallet = await _api.getWallet();
       if (!mounted) return;
       setState(() {
-        _walletMinutes = wallet.minutes;
+        _walletAmount = wallet.amount;
+        _walletMinimums = wallet.minimumBalance;
       });
     } on ApiClientException catch (error) {
       if (kDebugMode) {
@@ -179,7 +182,7 @@ class _DashboardPageState extends State<DashboardPage> {
       }
       if (mounted) {
         setState(() {
-          _walletMinutes = 0;
+          _walletAmount = 0;
         });
       }
     } catch (error) {
@@ -243,7 +246,12 @@ class _DashboardPageState extends State<DashboardPage> {
       if (!mounted) return;
 
       if (result.status == MoodUpdateStatus.limitReached) {
-        setState(() => _currentMoodValue = _lastCommittedMood);
+        setState(() {
+          _currentMoodValue = _lastCommittedMood;
+          if (result.timezone != null && result.timezone!.trim().isNotEmpty) {
+            profile['timezone'] = result.timezone!.trim();
+          }
+        });
         await _showMoodLimitDialog();
         return;
       }
@@ -313,8 +321,11 @@ class _DashboardPageState extends State<DashboardPage> {
       (_maxMoodUpdatesPerDay - _moodUpdatesToday).clamp(0, _maxMoodUpdatesPerDay);
 
   int calculateProfileCompletion() {
+    final preferredName = (profile['nickname'] as String?)?.trim().isNotEmpty == true
+        ? profile['nickname']
+        : profile['full_name'];
     final fields = [
-      profile['full_name'],
+      preferredName,
       profile['email'],
       profile['phone'],
       profile['age'],
@@ -338,7 +349,33 @@ class _DashboardPageState extends State<DashboardPage> {
       ),
     );
     if (updated != null) {
-      widget.onProfileUpdated(updated);
+      try {
+        final result = await _api.updateUserSettings(
+          fullName: updated['full_name'] as String?,
+          nickname: updated['nickname'] as String?,
+          phone: updated['phone'] as String?,
+          age: updated['age'] as int?,
+          gender: updated['gender'] as String?,
+        );
+        widget.onProfileUpdated({
+          'full_name': result.fullName ?? updated['full_name'],
+          'nickname': result.nickname ?? updated['nickname'],
+          'phone': result.phone ?? updated['phone'],
+          'age': result.age ?? updated['age'],
+          'gender': result.gender ?? updated['gender'],
+          'email': updated['email'],
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Profile updated')),
+          );
+        }
+      } catch (error) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update profile: $error')),
+        );
+      }
     } else {
       setState(() {}); // trigger UI refresh to reflect any controller edits
     }
@@ -659,22 +696,27 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   void _openWallet() async {
-    await Navigator.push<int>(
+    final updatedAmount = await Navigator.push<int>(
       context,
       MaterialPageRoute(builder: (_) => const WalletPage()),
     );
     if (!mounted) return;
-    await _loadWalletMinutes();
+    if (updatedAmount != null) {
+      setState(() => _walletAmount = updatedAmount);
+    } else {
+      await _loadWalletBalance();
+    }
   }
 
   void _openChatbot() {
-    if (_walletMinutes <= 0) {
+    final minChatBalance = _walletMinimums['chat'] ?? 0;
+    if (_walletAmount < minChatBalance) {
       showDialog<void>(
         context: context,
         builder: (_) => AlertDialog(
-          title: const Text('Low Talk-time'),
-          content: const Text(
-              "You're running low on talk-time. Recharge to continue sessions."),
+          title: const Text('Low Balance'),
+          content: Text(
+              "You need at least ₹$minChatBalance to start a chat. Please recharge to continue."),
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(context),
@@ -709,6 +751,8 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   String get _displayName {
+    final nickname = profile['nickname'] as String? ?? '';
+    if (nickname.trim().isNotEmpty) return nickname.trim();
     final fullName = profile['full_name'] as String? ?? '';
     if (fullName.isNotEmpty) return fullName;
     final username = profile['username'] as String? ?? '';
@@ -743,7 +787,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   Icons.account_balance_wallet_outlined,
                   color: Colors.white,
                 ),
-                if (_walletMinutes > 0)
+                if (_walletAmount > 0)
                   Positioned(
                     right: 0,
                     top: 0,
@@ -751,7 +795,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       radius: 7,
                       backgroundColor: Colors.orange,
                       child: Text(
-                        '${(_walletMinutes ~/ 10)}',
+                        _walletAmount >= 1000 ? '₹1k' : '₹$_walletAmount',
                         style: const TextStyle(
                           fontSize: 8,
                           color: Colors.white,
@@ -772,10 +816,6 @@ class _DashboardPageState extends State<DashboardPage> {
               ),
             ),
             onPressed: _openProfile,
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: widget.onLogout,
           ),
           const SizedBox(width: 8),
         ],
@@ -875,54 +915,7 @@ class _DashboardPageState extends State<DashboardPage> {
             style: TextStyle(color: Colors.white70),
           ),
           const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Profile completion',
-                      style: TextStyle(color: Colors.white70, fontSize: 12),
-                    ),
-                    const SizedBox(height: 6),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: LinearProgressIndicator(
-                        value: (completion.clamp(0, 100)) / 100,
-                        minHeight: 8,
-                        backgroundColor: Colors.white24,
-                        valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '$completion% complete',
-                      style: const TextStyle(color: Colors.white, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 18),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.account_balance_wallet_outlined, color: Colors.white, size: 18),
-                    const SizedBox(width: 8),
-                    Text(
-                      '$_walletMinutes mins',
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+          const SizedBox(height: 8),
         ],
       ),
     );
@@ -1074,6 +1067,20 @@ class _DashboardPageState extends State<DashboardPage> {
               "Today's note: ${_currentMoodValue.round() >= 4 ? 'Feeling okay' : 'Need support'}",
               style: const TextStyle(color: _Palette.subtext, fontSize: 13),
             ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                const Icon(Icons.access_time, size: 16, color: _Palette.subtext),
+                Text(
+                  'Resets at 12:00 AM (${_moodResetTimezoneLabel})',
+                  style: const TextStyle(fontSize: 12, color: _Palette.subtext),
+                  softWrap: true,
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -1095,6 +1102,18 @@ class _DashboardPageState extends State<DashboardPage> {
       default:
         return '🙂';
     }
+  }
+
+  String get _moodResetTimezoneLabel {
+    final stored = profile['timezone'];
+    String? tz;
+    if (stored is String && stored.trim().isNotEmpty) {
+      tz = stored.trim();
+    } else if (_timeZoneName != null && _timeZoneName!.trim().isNotEmpty) {
+      tz = _timeZoneName!.trim();
+    }
+    if (tz == null || tz.isEmpty) return 'local time';
+    return tz.replaceAll('_', ' ');
   }
 
   Widget _buildUpcomingCard() {
@@ -1171,7 +1190,7 @@ class _DashboardPageState extends State<DashboardPage> {
       physics: const NeverScrollableScrollPhysics(),
       mainAxisSpacing: 16,
       crossAxisSpacing: 16,
-      childAspectRatio: screenWidth > 600 ? 1.2 : 1,
+      childAspectRatio: screenWidth > 600 ? 1.15 : 0.95,
       children: [
         _QuickCard(
           icon: Icons.calendar_today,
@@ -2498,6 +2517,7 @@ class _ProfilePageState extends State<ProfilePage> {
   final _formKey = GlobalKey<FormState>();
 
   late TextEditingController _nameCtrl;
+  late TextEditingController _nicknameCtrl;
   late TextEditingController _emailCtrl;
   late TextEditingController _phoneCtrl;
   late TextEditingController _ageCtrl;
@@ -2508,6 +2528,8 @@ class _ProfilePageState extends State<ProfilePage> {
     super.initState();
     _nameCtrl =
         TextEditingController(text: widget.initialProfile['full_name'] ?? '');
+    _nicknameCtrl =
+        TextEditingController(text: widget.initialProfile['nickname'] ?? '');
     _emailCtrl =
         TextEditingController(text: widget.initialProfile['email'] ?? '');
     _phoneCtrl =
@@ -2523,6 +2545,7 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   void dispose() {
     _nameCtrl.dispose();
+    _nicknameCtrl.dispose();
     _emailCtrl.dispose();
     _phoneCtrl.dispose();
     _ageCtrl.dispose();
@@ -2548,6 +2571,7 @@ class _ProfilePageState extends State<ProfilePage> {
     if (_formKey.currentState!.validate()) {
       final updated = {
         'full_name': _nameCtrl.text.trim(),
+        'nickname': _nicknameCtrl.text.trim(),
         'email': _emailCtrl.text.trim(),
         'phone': _phoneCtrl.text.trim(),
         'age': int.tryParse(_ageCtrl.text.trim()),
@@ -2559,14 +2583,22 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   Widget build(BuildContext context) {
-    final completion = [
+    final completionFields = <String>[
+      _nicknameCtrl.text,
       _nameCtrl.text,
       _emailCtrl.text,
       _phoneCtrl.text,
       _ageCtrl.text,
       _gender,
-    ].where((value) => value.trim().isNotEmpty).length;
-    final completionPercent = ((completion / 5) * 100).round();
+    ];
+    final completion =
+        completionFields.where((value) => value.trim().isNotEmpty).length;
+    final completionPercent =
+        ((completion / completionFields.length) * 100).round();
+
+    final displayName = _nicknameCtrl.text.isNotEmpty
+        ? _nicknameCtrl.text
+        : (_nameCtrl.text.isNotEmpty ? _nameCtrl.text : 'Your Name');
 
     return Scaffold(
       appBar: AppBar(
@@ -2582,15 +2614,15 @@ class _ProfilePageState extends State<ProfilePage> {
               radius: 36,
               backgroundColor: _Palette.primary,
               child: Text(
-                _nameCtrl.text.isNotEmpty
-                    ? _nameCtrl.text[0].toUpperCase()
+                displayName.isNotEmpty
+                    ? displayName[0].toUpperCase()
                     : 'U',
                 style: const TextStyle(color: Colors.white, fontSize: 20),
               ),
             ),
             const SizedBox(height: 10),
             Text(
-              _nameCtrl.text.isNotEmpty ? _nameCtrl.text : 'Your Name',
+              displayName,
               style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
@@ -2635,6 +2667,12 @@ class _ProfilePageState extends State<ProfilePage> {
                           value == null || value.trim().isEmpty
                               ? 'Enter name'
                               : null,
+                    ),
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      controller: _nicknameCtrl,
+                      decoration: _inputDecoration(
+                          'Nickname (shown to counsellors & doctors)'),
                     ),
                     const SizedBox(height: 10),
                     TextFormField(

@@ -27,6 +27,14 @@ class _ScheduleSessionPageState extends State<ScheduleSessionPage> {
     super.dispose();
   }
 
+  @override
+  void initState() {
+    super.initState();
+    final recommended = DateTime.now().add(const Duration(hours: 1));
+    _selectedDate = DateTime(recommended.year, recommended.month, recommended.day);
+    _selectedTime = TimeOfDay(hour: recommended.hour, minute: recommended.minute);
+  }
+
   Future<void> _pickDate() async {
     final now = DateTime.now();
     final picked = await showDatePicker(
@@ -52,7 +60,8 @@ class _ScheduleSessionPageState extends State<ScheduleSessionPage> {
   Future<void> _pickTime() async {
     final picked = await showTimePicker(
       context: context,
-      initialTime: _selectedTime ?? TimeOfDay.now(),
+      initialTime: _selectedTime ??
+          TimeOfDay.fromDateTime(DateTime.now().add(const Duration(hours: 1))),
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -86,6 +95,26 @@ class _ScheduleSessionPageState extends State<ScheduleSessionPage> {
       time.minute,
     );
 
+    final now = DateTime.now();
+    final earliestAllowed = now.add(const Duration(minutes: 10));
+    final recommended = now.add(const Duration(hours: 1));
+
+    if (start.isBefore(earliestAllowed)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please choose a time at least 10 minutes from now.'),
+        ),
+      );
+      return;
+    }
+
+    if (start.isBefore(recommended)) {
+      final confirm = await _confirmEarlySession(start, recommended);
+      if (confirm != true) {
+        return;
+      }
+    }
+
     setState(() => _saving = true);
     try {
       final session = await _api.scheduleQuickSession(
@@ -113,6 +142,31 @@ class _ScheduleSessionPageState extends State<ScheduleSessionPage> {
       );
       setState(() => _saving = false);
     }
+  }
+
+  Future<bool?> _confirmEarlySession(DateTime start, DateTime recommended) {
+    final formatter = DateFormat('dd MMM, h:mm a');
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Schedule earlier than recommended?'),
+        content: Text(
+          'We usually suggest booking at least 1 hour ahead. '
+          'You selected ${formatter.format(start.toLocal())}, which is sooner than the suggested '
+          '${formatter.format(recommended.toLocal())}. Proceed anyway?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Pick another time'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Schedule anyway'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -175,6 +229,14 @@ class _ScheduleSessionPageState extends State<ScheduleSessionPage> {
                     icon: Icons.access_time,
                     onPressed: _pickTime,
                   ),
+              const SizedBox(height: 6),
+              Text(
+                'Tip: Sessions are best scheduled at least 1 hour ahead, '
+                'but you can still start as soon as 10 minutes from now.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: Colors.grey.shade600,
+                ),
+              ),
                   const SizedBox(height: 20),
                   _InputLabel(title: 'Notes for your counsellor (optional)'),
                   TextField(

@@ -280,21 +280,39 @@ class UpcomingSessionItem {
 
 class WalletInfo {
   const WalletInfo({
-    required this.minutes,
+    required this.balance,
+    required this.rates,
+    required this.minimumBalance,
   });
 
   factory WalletInfo.fromJson(Map<String, dynamic> json) {
+    final ratesJson = json['rates'] as Map<String, dynamic>? ?? const {};
+    final minimumJson = json['minimum_balance'] as Map<String, dynamic>? ?? const {};
+    Map<String, int> _mapToInt(Map<String, dynamic> source) {
+      return {
+        for (final entry in source.entries) entry.key: (entry.value as num?)?.toInt() ?? 0,
+      };
+    }
+
     return WalletInfo(
-      minutes: json['wallet_minutes'] as int? ?? 0,
+      balance: json['wallet_minutes'] as int? ?? 0,
+      rates: _mapToInt(ratesJson),
+      minimumBalance: _mapToInt(minimumJson),
     );
   }
 
-  final int minutes;
+  final int balance;
+  final Map<String, int> rates;
+  final Map<String, int> minimumBalance;
+
+  int get amount => balance;
+  int get minutes => balance;
 }
 
 class UserSettings {
   const UserSettings({
     this.fullName,
+    this.nickname,
     this.phone,
     this.age,
     this.gender,
@@ -306,6 +324,7 @@ class UserSettings {
   factory UserSettings.fromJson(Map<String, dynamic> json) {
     return UserSettings(
       fullName: (json['full_name'] as String?)?.trim(),
+      nickname: (json['nickname'] as String?)?.trim(),
       phone: (json['phone'] as String?)?.trim(),
       age: json['age'] as int?,
       gender: (json['gender'] as String?)?.trim(),
@@ -316,6 +335,7 @@ class UserSettings {
   }
 
   final String? fullName;
+  final String? nickname;
   final String? phone;
   final int? age;
   final String? gender;
@@ -326,6 +346,7 @@ class UserSettings {
   Map<String, dynamic> toJson() {
     return {
       'full_name': fullName,
+      'nickname': nickname,
       'phone': phone,
       'age': age,
       'gender': gender,
@@ -337,6 +358,7 @@ class UserSettings {
 
   UserSettings copyWith({
     String? fullName,
+    String? nickname,
     String? phone,
     int? age,
     String? gender,
@@ -346,6 +368,7 @@ class UserSettings {
   }) {
     return UserSettings(
       fullName: fullName ?? this.fullName,
+      nickname: nickname ?? this.nickname,
       phone: phone ?? this.phone,
       age: age ?? this.age,
       gender: gender ?? this.gender,
@@ -1052,6 +1075,7 @@ class ApiClient {
     String? email,
     required String password,
     String? fullName,
+    String? nickname,
     String? phone,
     int? age,
     String? gender,
@@ -1071,6 +1095,7 @@ class ApiClient {
 
     addIfPresent('email', email);
     addIfPresent('full_name', fullName);
+    addIfPresent('nickname', nickname);
     addIfPresent('phone', phone);
     if (age != null) {
       payload['age'] = age;
@@ -1250,6 +1275,7 @@ class ApiClient {
 
   Future<UserSettings> updateUserSettings({
     String? fullName,
+    String? nickname,
     String? phone,
     int? age,
     String? gender,
@@ -1259,6 +1285,7 @@ class ApiClient {
   }) async {
     final payload = <String, dynamic>{};
     if (fullName != null) payload['full_name'] = fullName;
+    if (nickname != null) payload['nickname'] = nickname;
     if (phone != null) payload['phone'] = phone;
     if (age != null) payload['age'] = age;
     if (gender != null) payload['gender'] = gender;
@@ -1534,18 +1561,18 @@ class ApiClient {
     );
   }
 
-  Future<int> rechargeWallet(int minutes) async {
+  Future<int> rechargeWallet(int amount) async {
     final response = await _sendAuthorized(
       (access) => http.post(
         Uri.parse('$base/wallet/recharge/'),
         headers: _headers(access, {'Content-Type': 'application/json'}),
-        body: jsonEncode({'minutes': minutes}),
+        body: jsonEncode({'minutes': amount}),
       ),
     );
 
     if (response.statusCode == 200) {
       final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-      return decoded['wallet_minutes'] as int? ?? minutes;
+      return decoded['wallet_minutes'] as int? ?? amount;
     }
 
     throw ApiClientException(

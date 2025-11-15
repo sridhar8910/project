@@ -21,6 +21,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _firstCtrl = TextEditingController();
   final _middleCtrl = TextEditingController();
   final _lastCtrl = TextEditingController();
+  final _nicknameCtrl = TextEditingController();
   final _ageCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
@@ -83,6 +84,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _firstCtrl.dispose();
     _middleCtrl.dispose();
     _lastCtrl.dispose();
+    _nicknameCtrl.dispose();
     _ageCtrl.dispose();
     _phoneCtrl.dispose();
     _emailCtrl.dispose();
@@ -270,6 +272,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _lastCtrl.text.trim(),
     ].where((s) => s.isNotEmpty).toList();
     final fullName = fullNameParts.join(' ');
+    final nicknameFallback = _nicknameCtrl.text.trim().isNotEmpty ? _nicknameCtrl.text.trim() : username;
     final age = int.tryParse(_ageCtrl.text.trim());
     final email = _emailCtrl.text.trim();
     final gender = _selectedGender;
@@ -281,6 +284,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       email: email,
       password: _passCtrl.text,
       fullName: fullName,
+      nickname: nicknameFallback,
       phone: phone,
       age: age,
       gender: gender,
@@ -334,6 +338,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
               decoration: _fieldDecoration(
                   label: 'Username', prefix: Icons.account_circle_outlined),
               validator: _validateUsername,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _nicknameCtrl,
+              textInputAction: TextInputAction.next,
+              decoration: _fieldDecoration(
+                label: 'Preferred / Nickname (shown to counsellors)',
+                prefix: Icons.person,
+              ),
             ),
             const SizedBox(height: 12),
             TextFormField(

@@ -11,19 +11,30 @@ class _BreathingPageState extends State<BreathingPage>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   bool _running = false;
-  int _cycleSeconds = 6;
+  bool _expanding = true;
+  int _phaseSeconds = 6;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: Duration(seconds: _cycleSeconds),
+      duration: Duration(seconds: _phaseSeconds),
     );
     _controller.addStatusListener((status) {
       if (status == AnimationStatus.completed) {
+        if (mounted) {
+          setState(() => _expanding = false);
+        } else {
+          _expanding = false;
+        }
         _controller.reverse();
       } else if (status == AnimationStatus.dismissed && _running) {
+        if (mounted) {
+          setState(() => _expanding = true);
+        } else {
+          _expanding = true;
+        }
         _controller.forward();
       }
     });
@@ -36,8 +47,11 @@ class _BreathingPageState extends State<BreathingPage>
   }
 
   void _start() {
-    setState(() => _running = true);
-    _controller.duration = Duration(seconds: _cycleSeconds);
+    setState(() {
+      _running = true;
+      _expanding = true;
+    });
+    _controller.duration = Duration(seconds: _phaseSeconds);
     _controller.forward(from: 0.0);
   }
 
@@ -45,6 +59,7 @@ class _BreathingPageState extends State<BreathingPage>
     setState(() => _running = false);
     _controller.stop();
     _controller.reset();
+    setState(() => _expanding = true);
   }
 
   @override
@@ -108,7 +123,9 @@ class _BreathingPageState extends State<BreathingPage>
                               ),
                               child: Center(
                                 child: Text(
-                                  _running ? (t < 0.5 ? 'Inhale' : 'Exhale') : 'Ready',
+                                  _running
+                                      ? (_expanding ? 'Inhale' : 'Exhale')
+                                      : 'Ready',
                                   style: const TextStyle(
                                     fontSize: 22,
                                     fontWeight: FontWeight.w600,
@@ -146,7 +163,7 @@ class _BreathingPageState extends State<BreathingPage>
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Text(
-                          'Cycle length',
+                          'Phase length',
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
@@ -154,8 +171,8 @@ class _BreathingPageState extends State<BreathingPage>
                           ),
                         ),
                         DropdownButton<int>(
-                          value: _cycleSeconds,
-                          items: [4, 5, 6, 8, 10]
+                          value: _phaseSeconds,
+                          items: [3, 4, 5, 6, 8, 10]
                               .map(
                                 (s) => DropdownMenuItem(
                                   value: s,
@@ -165,9 +182,10 @@ class _BreathingPageState extends State<BreathingPage>
                               .toList(),
                           onChanged: (v) {
                             if (v == null) return;
-                            setState(() => _cycleSeconds = v);
+                            setState(() => _phaseSeconds = v);
                             if (_running) {
-                              _controller.duration = Duration(seconds: _cycleSeconds);
+                              _controller.duration =
+                                  Duration(seconds: _phaseSeconds);
                             }
                           },
                         ),

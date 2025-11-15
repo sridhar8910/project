@@ -16,7 +16,7 @@ class _WalletPageState extends State<WalletPage> {
   bool _loading = true;
   bool _recharging = false;
   String? _error;
-  int _walletMinutes = 0;
+  int _walletAmount = 0;
   int _selectedAmount = 100;
 
   @override
@@ -41,7 +41,7 @@ class _WalletPageState extends State<WalletPage> {
       final wallet = await _api.getWallet();
       if (!mounted) return;
       setState(() {
-        _walletMinutes = wallet.minutes;
+        _walletAmount = wallet.amount;
         _loading = false;
       });
     } on ApiClientException catch (error) {
@@ -62,17 +62,15 @@ class _WalletPageState extends State<WalletPage> {
   Future<void> _recharge() async {
     if (_recharging) return;
 
-    final minutesToAdd = (_selectedAmount ~/ 10).clamp(1, 1000000);
-
     setState(() {
       _recharging = true;
     });
 
     try {
-      final updatedMinutes = await _api.rechargeWallet(minutesToAdd);
+      final updatedAmount = await _api.rechargeWallet(_selectedAmount);
       if (!mounted) return;
       setState(() {
-        _walletMinutes = updatedMinutes;
+        _walletAmount = updatedAmount;
         _recharging = false;
       });
       _showSnackBar('Wallet recharged successfully!');
@@ -97,13 +95,13 @@ class _WalletPageState extends State<WalletPage> {
   Widget build(BuildContext context) {
     return WillPopScope(
       onWillPop: () async {
-        Navigator.pop(context, _walletMinutes);
+        Navigator.pop(context, _walletAmount);
         return false;
       },
       child: Scaffold(
         appBar: AppBar(
           leading: BackButton(
-            onPressed: () => Navigator.pop(context, _walletMinutes),
+            onPressed: () => Navigator.pop(context, _walletAmount),
           ),
           title: const Text('Wallet'),
           backgroundColor: const Color(0xFF8B5FBF),
@@ -165,7 +163,7 @@ class _WalletPageState extends State<WalletPage> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '$_walletMinutes minutes',
+                    '₹$_walletAmount',
                     style: const TextStyle(
                       fontSize: 28,
                       fontWeight: FontWeight.bold,

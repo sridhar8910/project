@@ -22,6 +22,7 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=6)
     full_name = serializers.CharField(required=False, allow_blank=True)
+    nickname = serializers.CharField(required=False, allow_blank=True)
     phone = serializers.CharField(required=False, allow_blank=True)
     age = serializers.IntegerField(required=False, allow_null=True, min_value=0)
     gender = serializers.CharField(required=False, allow_blank=True)
@@ -29,7 +30,17 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ("username", "email", "password", "full_name", "phone", "age", "gender", "otp_token")
+        fields = (
+            "username",
+            "email",
+            "password",
+            "full_name",
+            "nickname",
+            "phone",
+            "age",
+            "gender",
+            "otp_token",
+        )
 
     def validate_username(self, value: str) -> str:
         normalized = value.strip()
@@ -71,6 +82,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 
         profile_fields = {
             "full_name": validated_data.pop("full_name", ""),
+            "nickname": validated_data.pop("nickname", ""),
             "phone": validated_data.pop("phone", ""),
             "age": validated_data.pop("age", None),
             "gender": validated_data.pop("gender", ""),
@@ -105,6 +117,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "username",
             "email",
             "full_name",
+            "nickname",
             "phone",
             "age",
             "gender",
@@ -133,6 +146,7 @@ class UserSettingsSerializer(serializers.ModelSerializer):
         model = UserProfile
         fields = (
             "full_name",
+            "nickname",
             "phone",
             "age",
             "gender",
@@ -151,6 +165,15 @@ class MoodUpdateSerializer(serializers.Serializer):
 class WalletRechargeSerializer(serializers.Serializer):
     minutes = serializers.IntegerField(min_value=1, max_value=600)
 
+
+class WalletUsageSerializer(serializers.Serializer):
+    SERVICE_CHOICES = (
+        ("call", "Call"),
+        ("chat", "Chat"),
+    )
+
+    service = serializers.ChoiceField(choices=SERVICE_CHOICES)
+    minutes = serializers.IntegerField(min_value=1, max_value=240)
 
 class WellnessTaskSerializer(serializers.ModelSerializer):
     class Meta:

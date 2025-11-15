@@ -5,10 +5,11 @@ from django.db import models
 class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="profile")
     full_name = models.CharField(max_length=120, blank=True)
+    nickname = models.CharField(max_length=80, blank=True)
     phone = models.CharField(max_length=30, blank=True)
     age = models.PositiveIntegerField(null=True, blank=True)
     gender = models.CharField(max_length=50, blank=True)
-    wallet_minutes = models.PositiveIntegerField(default=45)
+    wallet_minutes = models.PositiveIntegerField(default=100)
     last_mood = models.PositiveSmallIntegerField(default=3)
     last_mood_updated = models.DateTimeField(null=True, blank=True)
     mood_updates_count = models.PositiveSmallIntegerField(default=0)

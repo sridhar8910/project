@@ -141,6 +141,7 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
               const SizedBox(height: 12),
               _AccountDetailRow(label: 'Name', value: settings.fullName ?? 'Not set'),
+              _AccountDetailRow(label: 'Nickname', value: settings.nickname ?? 'Not set'),
               _AccountDetailRow(label: 'Phone', value: settings.phone ?? 'Not set'),
               _AccountDetailRow(
                 label: 'Age',

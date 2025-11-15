@@ -45,6 +45,7 @@ from .serializers import (
     UserSettingsSerializer,
     VerifyOTPSerializer,
     WalletRechargeSerializer,
+    WalletUsageSerializer,
     WellnessJournalEntrySerializer,
     WellnessTaskSerializer,
 )
@@ -53,6 +54,19 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 
 
 logger = logging.getLogger(__name__)
+
+CALL_RATE_PER_MINUTE = 5
+CHAT_RATE_PER_MINUTE = 1
+MIN_CALL_BALANCE = 100
+MIN_CHAT_BALANCE = 50
+SERVICE_RATE_MAP = {
+    "call": CALL_RATE_PER_MINUTE,
+    "chat": CHAT_RATE_PER_MINUTE,
+}
+SERVICE_MIN_BALANCE_MAP = {
+    "call": MIN_CALL_BALANCE,
+    "chat": MIN_CHAT_BALANCE,
+}
 
 
 class RegisterView(generics.CreateAPIView):
@@ -435,7 +449,59 @@ class WalletDetailView(APIView):
 
     def get(self, request):
         profile, _ = UserProfile.objects.get_or_create(user=request.user)
-        return Response({"wallet_minutes": profile.wallet_minutes})
+        return Response(
+            {
+                "wallet_minutes": profile.wallet_minutes,
+                "rates": SERVICE_RATE_MAP,
+                "minimum_balance": SERVICE_MIN_BALANCE_MAP,
+            }
+        )
+
+
+class WalletUsageView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = WalletUsageSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        service = serializer.validated_data["service"]
+        minutes = serializer.validated_data["minutes"]
+        rate = SERVICE_RATE_MAP[service]
+        charge = minutes * rate
+        min_required = SERVICE_MIN_BALANCE_MAP[service]
+
+        profile, _ = UserProfile.objects.get_or_create(user=request.user)
+        if profile.wallet_minutes < min_required:
+            return Response(
+                {
+                    "detail": f"Minimum balance of ₹{min_required} required to start {service}.",
+                    "wallet_minutes": profile.wallet_minutes,
+                    "required_minimum": min_required,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if profile.wallet_minutes < charge:
+            return Response(
+                {
+                    "detail": "Insufficient wallet balance",
+                    "wallet_minutes": profile.wallet_minutes,
+                    "required": charge,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        profile.wallet_minutes -= charge
+        profile.save(update_fields=["wallet_minutes"])
+        return Response(
+            {
+                "status": "ok",
+                "service": service,
+                "minutes": minutes,
+                "rate_per_minute": rate,
+                "charged": charge,
+                "wallet_minutes": profile.wallet_minutes,
+            }
+        )
 
 
 DEFAULT_WELLNESS_TASKS = {

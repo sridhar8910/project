@@ -188,7 +188,7 @@ class _MindCareBoosterPageState extends State<MindCareBoosterPage> {
         crossAxisCount: 2,
         mainAxisSpacing: 16,
         crossAxisSpacing: 16,
-        childAspectRatio: 0.92,
+        childAspectRatio: 0.78,
       ),
       itemCount: boosters.length,
       itemBuilder: (context, index) {
@@ -394,6 +394,8 @@ class _BoosterTile extends StatelessWidget {
               const SizedBox(height: 12),
               Text(
                 booster.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w600,
                     ),
@@ -402,6 +404,8 @@ class _BoosterTile extends StatelessWidget {
                 const SizedBox(height: 6),
                 Text(
                   booster.subtitle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: Theme.of(context)
                       .textTheme
                       .bodyMedium
