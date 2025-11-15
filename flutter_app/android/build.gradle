@@ -13,6 +13,27 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
+subprojects { subproject ->
+    if (subproject == project) {
+        return
+    }
+    subproject.plugins.whenPluginAdded {
+        if (subproject.extensions.findByName("android")?.hasProperty("namespace") == true) {
+            subproject.afterEvaluate {
+                def androidExt = subproject.extensions.findByName("android")
+                def currentNamespace = androidExt.namespace
+                if (currentNamespace == null || currentNamespace.toString().trim().isEmpty()) {
+                    def fallback = subproject.group
+                    if (fallback == null || fallback.toString().trim().isEmpty()) {
+                        fallback = "com.generated.${subproject.name.replace('-', '_')}"
+                    }
+                    androidExt.namespace = fallback.toString()
+                }
+            }
+        }
+    }
+}
+
 tasks.register("clean", Delete) {
     delete rootProject.buildDir
 }

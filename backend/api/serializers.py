@@ -111,12 +111,21 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "wallet_minutes",
             "last_mood",
             "last_mood_updated",
+            "mood_updates_count",
+            "mood_updates_date",
+            "timezone",
             "notifications_enabled",
             "prefers_dark_mode",
             "language",
             "created_at",
         )
-        read_only_fields = ("wallet_minutes", "last_mood", "last_mood_updated")
+        read_only_fields = (
+            "wallet_minutes",
+            "last_mood",
+            "last_mood_updated",
+            "mood_updates_count",
+            "mood_updates_date",
+        )
 
 
 class UserSettingsSerializer(serializers.ModelSerializer):
@@ -127,6 +136,7 @@ class UserSettingsSerializer(serializers.ModelSerializer):
             "phone",
             "age",
             "gender",
+            "timezone",
             "notifications_enabled",
             "prefers_dark_mode",
             "language",
@@ -135,6 +145,7 @@ class UserSettingsSerializer(serializers.ModelSerializer):
 
 class MoodUpdateSerializer(serializers.Serializer):
     value = serializers.IntegerField(min_value=1, max_value=5)
+    timezone = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
 
 class WalletRechargeSerializer(serializers.Serializer):

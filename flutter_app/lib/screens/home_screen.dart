@@ -2,17 +2,17 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_native_timezone_updated_gradle/flutter_native_timezone.dart';
 
 import '../services/api_client.dart';
-import 'legacy_advanced_care_support_page.dart';
-import 'legacy_affirmations_page.dart';
-import 'legacy_assessment_page.dart';
-import 'legacy_breathing_page.dart';
-import 'legacy_expert_connect_page.dart';
-import 'legacy_feature_detail_page.dart';
-import 'legacy_guidelines_page.dart';
-import 'legacy_insights_reports_page.dart';
-import 'legacy_journal_page.dart';
+import 'advanced_care_support_page.dart';
+import 'affirmations_page.dart';
+import 'assessment_page.dart';
+import 'breathing_page.dart';
+import 'expert_connect_page.dart';
+import 'guidelines_page.dart';
+import 'insights_reports_page.dart';
+import 'journal_page.dart';
 import 'login_screen.dart';
 import 'meditation_page.dart';
 import 'mindcare_booster_page.dart';
@@ -53,6 +53,9 @@ class _HomeScreenState extends State<HomeScreen> {
       'age': data['age'],
       'gender': data['gender'] ?? '',
       'preferences': data['preferences'] ?? '',
+      'last_mood': data['last_mood'] ?? 3,
+      'mood_updates_count': data['mood_updates_count'] ?? 0,
+      'mood_updates_date': data['mood_updates_date'],
     };
   }
 
@@ -115,7 +118,14 @@ class DashboardPage extends StatefulWidget {
 
 class _DashboardPageState extends State<DashboardPage> {
   final ApiClient _api = ApiClient();
-  double _moodValue = 3;
+  static const _maxMoodUpdatesPerDay = 3;
+
+  double _currentMoodValue = 3;
+  double _lastCommittedMood = 3;
+  int _moodUpdatesToday = 0;
+  bool _moodUpdating = false;
+  String? _timeZoneName;
+
   int _walletMinutes = 0;
   bool _walletLoading = false;
 
@@ -139,6 +149,7 @@ class _DashboardPageState extends State<DashboardPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadWalletMinutes();
     });
+    _initMoodState();
   }
 
   @override
@@ -184,13 +195,130 @@ class _DashboardPageState extends State<DashboardPage> {
     }
   }
 
+  Future<void> _initMoodState() async {
+    String? detectedTz;
+    try {
+      detectedTz = await FlutterNativeTimezone.getLocalTimezone();
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('Unable to read device timezone: $error');
+      }
+    }
+
+    final lastMood = profile['last_mood'];
+    final updatesUsed = profile['mood_updates_count'];
+
+    if (!mounted) return;
+    setState(() {
+      _timeZoneName = detectedTz;
+      if (lastMood is num) {
+        _currentMoodValue = lastMood.toDouble().clamp(1, 5);
+        _lastCommittedMood = _currentMoodValue;
+      }
+      if (updatesUsed is int) {
+        _moodUpdatesToday = updatesUsed;
+      }
+    });
+  }
+
+  Future<void> _attemptMoodChange(double newValue, {String? feedbackEmoji}) async {
+    final normalized = newValue.clamp(1, 5).toDouble();
+    if (_moodUpdating || _lastCommittedMood.round() == normalized.round()) {
+      if (mounted) {
+        setState(() => _currentMoodValue = _lastCommittedMood);
+      }
+      return;
+    }
+
+    setState(() {
+      _currentMoodValue = normalized;
+      _moodUpdating = true;
+    });
+
+    try {
+      final result = await _api.updateMood(
+        value: normalized.round(),
+        timezone: _timeZoneName,
+      );
+      if (!mounted) return;
+
+      if (result.status == MoodUpdateStatus.limitReached) {
+        setState(() => _currentMoodValue = _lastCommittedMood);
+        await _showMoodLimitDialog();
+        return;
+      }
+
+      setState(() {
+        _lastCommittedMood = normalized;
+        _currentMoodValue = normalized;
+        if (result.updatesUsed != null) {
+          _moodUpdatesToday = result.updatesUsed!.clamp(0, _maxMoodUpdatesPerDay);
+        }
+        profile['last_mood'] = normalized.round();
+        profile['mood_updates_count'] = _moodUpdatesToday;
+        profile['mood_updates_date'] = DateTime.now().toIso8601String();
+      });
+
+      if (feedbackEmoji != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Mood updated: $feedbackEmoji')),
+        );
+      }
+    } on ApiClientException catch (error) {
+      if (!mounted) return;
+      setState(() => _currentMoodValue = _lastCommittedMood);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _currentMoodValue = _lastCommittedMood);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to update mood. Please try again later.')),
+      );
+      if (kDebugMode) {
+        debugPrint('Mood update failed: $error');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _moodUpdating = false);
+      }
+    }
+  }
+
+  Future<void> _showMoodLimitDialog() async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Daily limit reached'),
+        content: const Text(
+          'You can update your mood only 3 times per day. '
+          'Your limit is complete for today. Please try again after 12:00 AM.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _handleMoodTap(double value, String emoji) {
+    _attemptMoodChange(value, feedbackEmoji: emoji);
+  }
+
+  int get _remainingMoodUpdates =>
+      (_maxMoodUpdatesPerDay - _moodUpdatesToday).clamp(0, _maxMoodUpdatesPerDay);
+
   int calculateProfileCompletion() {
     final fields = [
       profile['full_name'],
+      profile['email'],
       profile['phone'],
       profile['age'],
       profile['gender'],
-      profile['preferences']
     ];
     final filled = fields.where((value) {
       if (value == null) return false;
@@ -225,76 +353,38 @@ class _DashboardPageState extends State<DashboardPage> {
       );
       return;
     }
-    if (normalized.contains('legacy journal')) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const LegacyJournalPage()),
-      );
-      return;
-    }
-    if (normalized.contains('journal')) {
+    if (normalized.contains('wellness journal')) {
       Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => const WellnessJournalPage()),
       );
       return;
     }
-    if (normalized.contains('legacy guidelines')) {
+    if (normalized.contains('journal')) {
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const LegacyGuidelinesPage()),
+        MaterialPageRoute(builder: (_) => const MyJournalPage()),
       );
       return;
     }
-    if (normalized.contains('legacy expert')) {
+    if (normalized.contains('guideline')) {
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const LegacyExpertConnectPage()),
+        MaterialPageRoute(builder: (_) => const GuidelinesPage()),
       );
       return;
     }
-    if (normalized.contains('legacy assessment')) {
+    if (normalized.contains('mental health') || normalized.contains('assessment')) {
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const LegacyAssessmentPage()),
+        MaterialPageRoute(builder: (_) => const AIAssessmentPage()),
       );
       return;
     }
-    if (normalized.contains('legacy breathing')) {
+    if (normalized.contains('expert connect')) {
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const LegacyBreathingPage()),
-      );
-      return;
-    }
-    if (normalized.contains('legacy affirmations')) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const LegacyAffirmationsPage()),
-      );
-      return;
-    }
-    if (normalized.contains('legacy advanced care')) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-            builder: (_) => const LegacyAdvancedCareSupportPage()),
-      );
-      return;
-    }
-    if (normalized.contains('legacy insights')) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const LegacyInsightsReportsPage()),
-      );
-      return;
-    }
-    if (normalized.contains('legacy feature detail')) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const LegacyFeatureDetailPage(),
-        ),
+        MaterialPageRoute(builder: (_) => const ExpertConnectPage()),
       );
       return;
     }
@@ -322,29 +412,14 @@ class _DashboardPageState extends State<DashboardPage> {
     if (normalized.contains('breathing')) {
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const LegacyBreathingPage()),
+        MaterialPageRoute(builder: (_) => const BreathingPage()),
       );
       return;
     }
     if (normalized.contains('affirmation')) {
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const LegacyAffirmationsPage()),
-      );
-      return;
-    }
-    if (normalized.contains('assessment')) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const LegacyAssessmentPage()),
-      );
-      return;
-    }
-    if (normalized.contains('advanced care')) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-            builder: (_) => const LegacyAdvancedCareSupportPage()),
+        MaterialPageRoute(builder: (_) => const AffirmationsPage()),
       );
       return;
     }
@@ -369,17 +444,17 @@ class _DashboardPageState extends State<DashboardPage> {
       );
       return;
     }
-    if (normalized.contains('reports')) {
+    if (normalized.contains('insights') && normalized.contains('reports')) {
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const ReportsAnalyticsPage()),
+        MaterialPageRoute(builder: (_) => const InsightsReportsPage()),
       );
       return;
     }
-    if (normalized.contains('legacy insights')) {
+    if (normalized.contains('reports') && normalized.contains('analytics')) {
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const LegacyInsightsReportsPage()),
+        MaterialPageRoute(builder: (_) => const ReportsAnalyticsPage()),
       );
       return;
     }
@@ -399,6 +474,13 @@ class _DashboardPageState extends State<DashboardPage> {
     }
     if (normalized.contains('wallet')) {
       _openWallet();
+      return;
+    }
+    if (normalized.contains('advanced care')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const AdvancedCareSupportPage()),
+      );
       return;
     }
     if (normalized.contains('recharge room')) {
@@ -505,22 +587,6 @@ class _DashboardPageState extends State<DashboardPage> {
           '• Short music burst (AI-generated calm sound)\n'
           '• Positive affirmation (text/voice)\n\n'
           '"Breathe in peace... exhale stress... you\'re doing great."',
-      'Legacy Journal':
-          'A standalone demo journal page that stores entries in-memory only. Useful for showcasing the original concept without backend connectivity.',
-      'Legacy Insights':
-          'Static insights and summary cards from the early prototype. Data shown here is mock content for presentation purposes.',
-      'Legacy Guidelines':
-          'Original community guidelines prototype. Helpful for comparing how the content evolved since the early designs.',
-      'Legacy Expert':
-          'Demo of the expert connect list using static counsellor data from the initial mockups.',
-      'Legacy Assessment':
-          'Early AI assessment walkthrough with canned questions and score feedback.',
-      'Legacy Breathing':
-          'Animated breathing exercise showcasing the first UI iteration. Runs entirely on-device.',
-      'Legacy Affirmations':
-          'Scrollable list of affirmations with copy/share actions, based on the prototype version.',
-      'Legacy Advanced Care':
-          'Legacy overview of advanced care services and specialists before backend wiring.',
       'Advanced Care Support':
           'Counsellor-guided pathway to specialized care.\n\n'
               'Appears when counsellor recommends doctor consultation:\n'
@@ -632,6 +698,16 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
+  void _navigateToDashboard() {
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(
+        builder: (_) => HomeScreen(profile: profile),
+      ),
+      (route) => false,
+    );
+  }
+
   String get _displayName {
     final fullName = profile['full_name'] as String? ?? '';
     if (fullName.isNotEmpty) return fullName;
@@ -718,20 +794,8 @@ class _DashboardPageState extends State<DashboardPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Welcome back, ${_displayName.split(' ').first}! 🌞',
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: _Palette.text,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'How are you feeling today?',
-                        style: TextStyle(color: _Palette.text),
-                      ),
-                      const SizedBox(height: 12),
+                      _buildHeader(profileCompletion),
+                      const SizedBox(height: 20),
                       _buildMoodCard(),
                       const SizedBox(height: 14),
                       _buildUpcomingCard(),
@@ -771,85 +835,244 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
+  Widget _buildHeader(int completion) {
+    final greeting = _displayName.split(' ').first;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF8B5FBF),
+            Color(0xFF4AC6B7),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF8B5FBF).withOpacity(0.25),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Welcome back, $greeting',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Let’s keep your wellness momentum strong today.',
+            style: TextStyle(color: Colors.white70),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Profile completion',
+                      style: TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                    const SizedBox(height: 6),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: LinearProgressIndicator(
+                        value: (completion.clamp(0, 100)) / 100,
+                        minHeight: 8,
+                        backgroundColor: Colors.white24,
+                        valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '$completion% complete',
+                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 18),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.account_balance_wallet_outlined, color: Colors.white, size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      '$_walletMinutes mins',
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildMoodCard() {
+    const gradients = [
+      [Color(0xFFFEE3E2), Color(0xFFFFB7B6)],
+      [Color(0xFFE8EAF2), Color(0xFFCED3E5)],
+      [Color(0xFFF5F3FF), Color(0xFFE9E5FF)],
+      [Color(0xFFE2F5EA), Color(0xFFBFE5CE)],
+      [Color(0xFFFFECB8), Color(0xFFFFE08C)],
+    ];
+    const emojis = ['😢', '😞', '😐', '🙂', '😄'];
+
     return Card(
       color: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      elevation: 2,
+      elevation: 3,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            const Text(
+              'Daily Mood Check-in',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 18,
+                color: _Palette.text,
+              ),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Tap how you feel today and slide to fine tune.',
+              style: TextStyle(color: _Palette.subtext, fontSize: 13),
+            ),
+            const SizedBox(height: 18),
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: List.generate(5, (index) {
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: List.generate(emojis.length, (index) {
                 final idx = index + 1;
-                final colors = [
-                  [const Color(0xFFFEE3E2), const Color(0xFFFFB7B6)],
-                  [const Color(0xFFE8EAF2), const Color(0xFFCED3E5)],
-                  [const Color(0xFFF5F3FF), const Color(0xFFE9E5FF)],
-                  [const Color(0xFFE2F5EA), const Color(0xFFBFE5CE)],
-                  [const Color(0xFFFFECB8), const Color(0xFFFFE08C)],
-                ][index];
-                final emoji = ['😢', '😞', '😐', '🙂', '😄'][index];
+                final isSelected = _currentMoodValue.round() == idx;
+                final colors = gradients[index];
                 return GestureDetector(
-                  onTap: () {
-                    setState(() => _moodValue = idx.toDouble());
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Mood updated: $emoji')),
-                    );
-                  },
+                  onTap: _moodUpdating ? null : () => _handleMoodTap(idx.toDouble(), emojis[index]),
                   child: Column(
                     children: [
-                      const SizedBox(height: 2),
-                      Container(
-                        padding: const EdgeInsets.all(8),
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          gradient: LinearGradient(colors: colors),
-                          borderRadius: BorderRadius.circular(12),
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: colors,
+                          ),
+                          borderRadius: BorderRadius.circular(14),
                           boxShadow: [
                             BoxShadow(
-                              color: colors[0].withOpacity(0.3),
-                              blurRadius: 8,
-                              spreadRadius: 1,
-                            )
+                              color: colors.first.withOpacity(0.25),
+                              blurRadius: 12,
+                              offset: const Offset(0, 6),
+                            ),
                           ],
+                          border: Border.all(
+                            color: isSelected ? _Palette.primary : Colors.transparent,
+                            width: 2,
+                          ),
                         ),
-                        child:
-                            Text(emoji, style: const TextStyle(fontSize: 24)),
+                        child: Text(
+                          emojis[index],
+                          style: const TextStyle(fontSize: 26),
+                        ),
                       ),
                       const SizedBox(height: 6),
-                      if (_moodValue.round() == idx)
-                        Container(
-                          width: 6,
-                          height: 6,
+                      AnimatedOpacity(
+                        opacity: isSelected ? 1 : 0,
+                        duration: const Duration(milliseconds: 200),
+                        child: Container(
+                          width: 8,
+                          height: 8,
                           decoration: const BoxDecoration(
                             color: _Palette.primary,
                             shape: BoxShape.circle,
                           ),
                         ),
+                      ),
                     ],
                   ),
                 );
               }),
             ),
-            const SizedBox(height: 12),
-            Slider(
-              value: _moodValue,
-              min: 1,
-              max: 5,
-              divisions: 4,
-              label: _moodEmoji(_moodValue),
-              onChanged: (value) => setState(() => _moodValue = value),
+            const SizedBox(height: 18),
+            SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                activeTrackColor: _Palette.primary,
+                inactiveTrackColor: _Palette.soft,
+                trackHeight: 6,
+                thumbColor: _Palette.primary,
+                overlayColor: _Palette.primary.withOpacity(0.2),
+                tickMarkShape: const RoundSliderTickMarkShape(tickMarkRadius: 2),
+                activeTickMarkColor: Colors.white,
+                inactiveTickMarkColor: Colors.white54,
+              ),
+              child: Slider(
+                value: _currentMoodValue,
+                min: 1,
+                max: 5,
+                divisions: 8,
+                label: _currentMoodValue.toStringAsFixed(1),
+                onChanged: _moodUpdating
+                    ? null
+                    : (value) => setState(() => _currentMoodValue = value),
+                onChangeEnd: _moodUpdating ? null : (value) => _attemptMoodChange(value),
+              ),
             ),
+            const SizedBox(height: 4),
+            Text(
+              'Mood score: ${_currentMoodValue.toStringAsFixed(1)} / 5',
+              style: const TextStyle(fontSize: 12, color: _Palette.subtext),
+            ),
+            const SizedBox(height: 6),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Mood: ${_moodEmoji(_moodValue)}'),
                 Text(
-                  "Today's note: ${_moodValue.round() >= 4 ? 'Feeling okay' : 'Need support'}",
+                  'Mood: ${_moodEmoji(_currentMoodValue)}',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: _Palette.soft,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    'Updates left: $_remainingMoodUpdates / $_maxMoodUpdatesPerDay',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: _Palette.text,
+                    ),
+                  ),
                 ),
               ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              "Today's note: ${_currentMoodValue.round() >= 4 ? 'Feeling okay' : 'Need support'}",
+              style: const TextStyle(color: _Palette.subtext, fontSize: 13),
             ),
           ],
         ),
@@ -875,38 +1098,68 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Widget _buildUpcomingCard() {
-    return Card(
-      color: const Color(0xFFDCD6FF),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      elevation: 1,
-      child: SizedBox(
-        height: 80,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Upcoming',
-                style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  color: Colors.black,
-                ),
-              ),
-              ElevatedButton(
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const UpcomingSessionsPage()),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: Colors.black,
-                ),
-                child: const Text('View'),
-              ),
-            ],
-          ),
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFFDCD6FF), Color(0xFFB8C5FF)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFDCD6FF).withOpacity(0.5),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 54,
+            height: 54,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Icon(Icons.calendar_today, color: _Palette.primary),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                Text(
+                  'Upcoming this week',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                    color: _Palette.text,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'Check your planned sessions and daily self-care reminders.',
+                  style: TextStyle(color: _Palette.subtext, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const UpcomingSessionsPage()),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: _Palette.primary,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            ),
+            child: const Text('View'),
+          ),
+        ],
       ),
     );
   }
@@ -953,7 +1206,7 @@ class _DashboardPageState extends State<DashboardPage> {
           title: 'Wellness Journal',
           subtitle: 'Track Progress',
           iconColor: Colors.indigo,
-          onTap: () => _openFeature('Journal'),
+          onTap: () => _openFeature('Wellness Journal'),
         ),
         _QuickCard(
           icon: Icons.groups_outlined,
@@ -1033,15 +1286,21 @@ class _DashboardPageState extends State<DashboardPage> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          _formatNameForDisplay(username),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                            fontSize: 16,
+                        InkWell(
+                          onTap: () {
+                            Navigator.pop(context);
+                            _openProfile();
+                          },
+                          child: Text(
+                            _formatNameForDisplay(username),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                              fontSize: 16,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 6),
                         Text(
@@ -1067,7 +1326,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 ],
               ),
             ),
-            _drawerTile('Dashboard', Icons.home, () => Navigator.pop(context)),
+            _drawerTile('Dashboard', Icons.home, _navigateToDashboard),
             _drawerTile('Connect with Counsellor', Icons.chat, _openChatbot),
             _drawerTile(
               'History Center',
@@ -1081,50 +1340,10 @@ class _DashboardPageState extends State<DashboardPage> {
                 () => _openFeature('Reports & Analytics')),
             _drawerTile(
                 'My Journal', Icons.book, () => _openFeature('My Journal')),
-            _drawerTile(
-              'Legacy Journal (offline)',
-              Icons.bookmark_border,
-              () => _openFeature('Legacy Journal'),
-            ),
             _drawerTile('Schedule', Icons.calendar_today,
                 () => _openFeature('Schedule')),
             _drawerTile('Professional Guidance', Icons.medical_services,
                 () => _openFeature('Professional Guidance')),
-            _drawerTile(
-              'Legacy Insights (offline)',
-              Icons.analytics_outlined,
-              () => _openFeature('Legacy Insights'),
-            ),
-            _drawerTile(
-              'Legacy Guidelines (offline)',
-              Icons.rule,
-              () => _openFeature('Legacy Guidelines'),
-            ),
-            _drawerTile(
-              'Legacy Expert Connect',
-              Icons.groups_2_outlined,
-              () => _openFeature('Legacy Expert'),
-            ),
-            _drawerTile(
-              'Legacy Breathing',
-              Icons.self_improvement,
-              () => _openFeature('Legacy Breathing'),
-            ),
-            _drawerTile(
-              'Legacy Affirmations',
-              Icons.record_voice_over,
-              () => _openFeature('Legacy Affirmations'),
-            ),
-            _drawerTile(
-              'Legacy Assessment',
-              Icons.assignment,
-              () => _openFeature('Legacy Assessment'),
-            ),
-            _drawerTile(
-              'Legacy Advanced Care',
-              Icons.local_hospital,
-              () => _openFeature('Legacy Advanced Care'),
-            ),
             _drawerTile(
               'Settings',
               Icons.settings,
@@ -1277,35 +1496,61 @@ class WellnessExtras extends StatelessWidget {
           Card(
             color: _Palette.cardBg,
             elevation: 6,
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  const Text(
-                    'Advanced Care Support',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: _Palette.text,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Center(
-                    child: InkWell(
-                      onTap: () => onOpenFeature('Advanced Care Support'),
-                      child: const CircleAvatar(
-                        radius: 28,
-                        backgroundColor: _Palette.soft,
-                        child: Icon(Icons.health_and_safety,
-                            size: 28, color: _Palette.primary),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () => onOpenFeature('Advanced Care Support'),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: _Palette.soft,
+                        borderRadius: BorderRadius.circular(14),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _Palette.soft.withOpacity(0.6),
+                            blurRadius: 12,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.health_and_safety,
+                        color: _Palette.primary,
+                        size: 30,
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                ],
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: const [
+                          Text(
+                            'Advanced Care Support',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: _Palette.text,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            'Professional guidance when you need it',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: _Palette.subtext,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right, color: _Palette.subtext),
+                  ],
+                ),
               ),
             ),
           ),

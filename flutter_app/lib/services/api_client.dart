@@ -356,6 +356,42 @@ class UserSettings {
   }
 }
 
+enum MoodUpdateStatus { ok, limitReached }
+
+class MoodUpdateResult {
+  const MoodUpdateResult({
+    required this.status,
+    this.updatesUsed,
+    this.updatesRemaining,
+    this.resetAtLocal,
+    this.timezone,
+  });
+
+  factory MoodUpdateResult.success(Map<String, dynamic> json) {
+    return MoodUpdateResult(
+      status: MoodUpdateStatus.ok,
+      updatesUsed: json['updates_used'] as int?,
+      updatesRemaining: json['updates_remaining'] as int?,
+    );
+  }
+
+  factory MoodUpdateResult.limit(Map<String, dynamic> json) {
+    return MoodUpdateResult(
+      status: MoodUpdateStatus.limitReached,
+      resetAtLocal: json['reset_at_local'] as String?,
+      timezone: json['timezone'] as String?,
+      updatesUsed: json['updates_used'] as int?,
+      updatesRemaining: json['updates_remaining'] as int?,
+    );
+  }
+
+  final MoodUpdateStatus status;
+  final int? updatesUsed;
+  final int? updatesRemaining;
+  final String? resetAtLocal;
+  final String? timezone;
+}
+
 class AnalyticsMoodPoint {
   const AnalyticsMoodPoint({
     required this.date,
@@ -1249,6 +1285,40 @@ class ApiClient {
 
     throw ApiClientException(
       'Unable to update settings: ${_extractErrorMessage(response)}',
+    );
+  }
+
+  Future<MoodUpdateResult> updateMood({
+    required int value,
+    String? timezone,
+  }) async {
+    final payload = <String, dynamic>{
+      'value': value.clamp(1, 5),
+    };
+    if (timezone != null && timezone.trim().isNotEmpty) {
+      payload['timezone'] = timezone.trim();
+    }
+
+    final response = await _sendAuthorized(
+      (access) => http.post(
+        Uri.parse('$base/mood/'),
+        headers: _headers(access, {'Content-Type': 'application/json'}),
+        body: jsonEncode(payload),
+      ),
+    );
+
+    if (response.statusCode == 200) {
+      final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+      return MoodUpdateResult.success(decoded);
+    }
+
+    if (response.statusCode == 429) {
+      final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+      return MoodUpdateResult.limit(decoded);
+    }
+
+    throw ApiClientException(
+      'Unable to update mood: ${_extractErrorMessage(response)}',
     );
   }
 

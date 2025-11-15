@@ -149,6 +149,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           const SizedBox(height: 24),
               TextFormField(
                             controller: _userCtrl,
+              textInputAction: TextInputAction.next,
                             decoration: const InputDecoration(
                               labelText: 'Email or phone number',
                               prefixIcon: Icon(Icons.person_outline),
@@ -163,6 +164,7 @@ class _LoginScreenState extends State<LoginScreen> {
               TextFormField(
                             controller: _passCtrl,
                             obscureText: _obscure,
+              textInputAction: TextInputAction.done,
                             decoration: InputDecoration(
                               labelText: 'Password',
                               prefixIcon: const Icon(Icons.lock_outline),
@@ -177,6 +179,11 @@ class _LoginScreenState extends State<LoginScreen> {
                                   : null,
                             ),
                             validator: _validatePassword,
+              onFieldSubmitted: (_) {
+                if (!_loading) {
+                  _submit();
+                }
+              },
                           ),
                           const SizedBox(height: 8),
                           Align(

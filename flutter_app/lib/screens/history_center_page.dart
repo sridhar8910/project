@@ -1,9 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import '../services/api_client.dart';
-import 'schedule_session_page.dart';
-import 'support_groups_page.dart';
-import 'wallet_page.dart';
+
+class AppPalette {
+  static const primary = Color(0xFF8B5FBF);
+  static const accent = Color(0xFF4AC6B7);
+  static const bg = Color(0xFFFDFBFF);
+  static const cardBg = Color(0xFFFFFFFF);
+  static const text = Color(0xFF1A1B41);
+  static const subtext = Color(0xFF6B6B8E);
+  static const soft = Color(0xFFF0EBFF);
+  static const border = Color(0xFFF5F3FF);
+}
 
 class HistoryCenterPage extends StatefulWidget {
   const HistoryCenterPage({super.key});
@@ -14,624 +23,354 @@ class HistoryCenterPage extends StatefulWidget {
 
 class _HistoryCenterPageState extends State<HistoryCenterPage>
     with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+
   final ApiClient _api = ApiClient();
-
-  bool _loading = true;
-  bool _refreshing = false;
-  bool _recharging = false;
-  String? _error;
-
-  List<SupportGroupItem> _groups = const [];
-  List<UpcomingSessionItem> _sessions = const [];
-  WalletInfo? _wallet;
-
-  late final TabController _tabController;
+  bool _loadingSessions = true;
+  String? _sessionsError;
+  List<UpcomingSessionItem> _sessions = const <UpcomingSessionItem>[];
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    _load();
+    _loadSessions();
   }
 
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _load({bool showLoader = true}) async {
-    if (_loading || _refreshing) return;
-
+  Future<void> _loadSessions({bool showLoader = true}) async {
     if (showLoader) {
       setState(() {
-        _loading = true;
-        _error = null;
+        _loadingSessions = true;
+        _sessionsError = null;
       });
     } else {
       setState(() {
-        _refreshing = true;
-        _error = null;
+        _sessionsError = null;
       });
     }
 
     try {
-      final results = await Future.wait([
-        _api.fetchSupportGroups(),
-        _api.fetchUpcomingSessions(),
-        _api.getWallet(),
-      ]);
-
+      final sessions = await _api.fetchUpcomingSessions();
       if (!mounted) return;
       setState(() {
-        _groups = results[0] as List<SupportGroupItem>;
-        _sessions = results[1] as List<UpcomingSessionItem>;
-        _wallet = results[2] as WalletInfo;
-        _loading = false;
-        _refreshing = false;
+        _sessions = sessions;
+        _loadingSessions = false;
       });
     } on ApiClientException catch (error) {
       if (!mounted) return;
       setState(() {
-        _error = error.message;
-        _loading = false;
-        _refreshing = false;
+        _sessionsError = error.message;
+        _loadingSessions = false;
       });
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _error = 'Something went wrong. Please try again. ($error)';
-        _loading = false;
-        _refreshing = false;
+        _sessionsError = 'Unable to load session history. Please try again.';
+        _loadingSessions = false;
       });
     }
   }
 
-  Future<void> _recharge(int minutes) async {
-    if (_recharging) return;
-    setState(() => _recharging = true);
-    try {
-      final total = await _api.rechargeWallet(minutes);
-      if (!mounted) return;
-      setState(() {
-        _wallet = WalletInfo(minutes: total);
-        _recharging = false;
-      });
-      _showSnackBar('Wallet recharged with $minutes minutes.');
-    } on ApiClientException catch (error) {
-      if (!mounted) return;
-      setState(() => _recharging = false);
-      _showSnackBar(error.message);
-    } catch (error) {
-      if (!mounted) return;
-      setState(() => _recharging = false);
-      _showSnackBar('Unable to recharge wallet. Please try again. ($error)');
-    }
-  }
+  Future<void> _refreshSessions() => _loadSessions(showLoader: false);
 
-  void _showSnackBar(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  List<UpcomingSessionItem> get _sortedSessions {
+    final list = [..._sessions];
+    list.sort((a, b) => b.startTime.compareTo(a.startTime));
+    return list;
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      return Scaffold(
-        appBar: AppBar(
-          title: const Text('History Center'),
-          backgroundColor: const Color(0xFF8B5FBF),
-        ),
-        body: const Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    if (_error != null) {
-      return Scaffold(
-        appBar: AppBar(
-          title: const Text('History Center'),
-          backgroundColor: const Color(0xFF8B5FBF),
-        ),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  _error!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.red),
-                ),
-                const SizedBox(height: 16),
-                FilledButton(
-                  onPressed: () => _load(showLoader: true),
-                  child: const Text('Retry'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    final now = DateTime.now();
-    final upcoming = _sessions.where((s) => s.startTime.isAfter(now)).toList();
-    final past = _sessions.where((s) => !s.startTime.isAfter(now)).toList();
-    final joinedGroups = _groups.where((g) => g.isJoined).length;
-    final walletMinutes = _wallet?.minutes ?? 0;
-
     return Scaffold(
-      backgroundColor: Colors.grey[50],
       appBar: AppBar(
         title: const Text(
           'History Center',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+          style: TextStyle(color: Colors.black),
         ),
-        backgroundColor: const Color(0xFF8B5FBF),
-        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.black),
+        backgroundColor: Colors.white,
+        foregroundColor: AppPalette.primary,
+        bottom: TabBar(
+          controller: _tabController,
+          labelColor: AppPalette.primary,
+          tabs: const [
+            Tab(icon: Icon(Icons.chat_bubble_outline), text: 'Chat'),
+            Tab(icon: Icon(Icons.call_outlined), text: 'Calls'),
+            Tab(icon: Icon(Icons.payments_outlined), text: 'Payments'),
+          ],
+        ),
       ),
-      body: Column(
+      body: TabBarView(
+        controller: _tabController,
+        children: [_buildChatHistory(), _buildCallHistory(), _buildPayments()],
+      ),
+    );
+  }
+
+  Widget _buildChatHistory() {
+    if (_loadingSessions) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_sessionsError != null) {
+      return ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
         children: [
-          _buildSummaryHeader(
-            upcomingCount: upcoming.length,
-            pastCount: past.length,
-            groupCount: joinedGroups,
-            walletMinutes: walletMinutes,
+          const Icon(Icons.history, size: 48, color: AppPalette.subtext),
+          const SizedBox(height: 12),
+          Text(
+            _sessionsError!,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 16, color: AppPalette.text),
           ),
-          Container(
-            color: Colors.white,
-            child: TabBar(
-              controller: _tabController,
-              labelColor: const Color(0xFF8B5FBF),
-              unselectedLabelColor: Colors.grey[600],
-              indicatorColor: const Color(0xFF8B5FBF),
-              tabs: const [
-                Tab(text: 'Chats'),
-                Tab(text: 'Calls'),
-                Tab(text: 'Wallet'),
-              ],
+          const SizedBox(height: 12),
+          FilledButton(
+            onPressed: _loadSessions,
+            child: const Text('Retry'),
+          ),
+        ],
+      );
+    }
+
+    final orderedSessions = _sortedSessions;
+    if (orderedSessions.isEmpty) {
+      return ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        children: [
+          const Icon(Icons.chat_bubble_outline,
+              size: 48, color: AppPalette.subtext),
+          const SizedBox(height: 12),
+          const Text(
+            'Session chat history will appear here',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: AppPalette.text,
             ),
           ),
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: () => _load(showLoader: false),
-              child: TabBarView(
-                controller: _tabController,
+          const SizedBox(height: 8),
+          const Text(
+            'After each counselling session, a summary of the conversation will be listed below. '
+            'Here is a sample entry to show how it will look:',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppPalette.subtext),
+          ),
+          const SizedBox(height: 24),
+          Card(
+            color: AppPalette.cardBg,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: const BorderSide(color: AppPalette.border),
+            ),
+            child: const ListTile(
+              leading: CircleAvatar(
+                backgroundColor: AppPalette.primary,
+                child: Icon(Icons.person, color: Colors.white),
+              ),
+              title: Text(
+                'Therapist Sample',
+                style: TextStyle(
+                  color: AppPalette.text,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              subtitle: Text(
+                'Session summary available.\n3:30 PM',
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: Text(
+                '14/11/2025',
+                style: TextStyle(
+                  color: AppPalette.subtext,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _refreshSessions,
+      child: ListView.separated(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(12),
+        itemCount: orderedSessions.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 8),
+        itemBuilder: (context, index) {
+          final session = orderedSessions[index];
+          final now = DateTime.now();
+          final isPast = session.startTime.isBefore(now);
+          final counsellor = session.counsellorName.isNotEmpty
+              ? session.counsellorName
+              : session.title.isNotEmpty
+                  ? session.title
+                  : 'Counsellor';
+          final summary = session.notes.isNotEmpty
+              ? session.notes
+              : isPast
+                  ? 'Session summary available.'
+                  : 'Scheduled ${DateFormat('EEE, MMM d').format(session.startTime)}';
+          final dateText = DateFormat('dd/MM/yyyy').format(session.startTime);
+          final timeText = DateFormat('h:mm a').format(session.startTime);
+
+          return Card(
+            color: AppPalette.cardBg,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: const BorderSide(color: AppPalette.border),
+            ),
+            child: ListTile(
+              leading: const CircleAvatar(
+                backgroundColor: AppPalette.primary,
+                child: Icon(Icons.person, color: Colors.white),
+              ),
+              title: Text(
+                counsellor,
+                style: const TextStyle(
+                  color: AppPalette.text,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              subtitle: Text(
+                '$summary\n$timeText',
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: Text(
+                dateText,
+                style: const TextStyle(
+                  color: AppPalette.subtext,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildCallHistory() {
+    return ListView(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      children: [
+        const Icon(Icons.call, size: 48, color: AppPalette.subtext),
+        const SizedBox(height: 12),
+        const Text(
+          'Your call history will appear here',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+            color: AppPalette.text,
+          ),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Once you speak with a counsellor, details such as duration and date will be listed below. '
+          'Here is a sample entry for reference:',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: AppPalette.subtext),
+        ),
+        const SizedBox(height: 24),
+        Card(
+          color: AppPalette.cardBg,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: const BorderSide(color: AppPalette.border),
+          ),
+          child: const ListTile(
+            leading: CircleAvatar(
+              backgroundColor: AppPalette.primary,
+              child: Icon(Icons.call, color: Colors.white),
+            ),
+            title: Text(
+              'Therapist Sample',
+              style: TextStyle(color: AppPalette.text),
+            ),
+            subtitle: Text('Duration: 20 mins'),
+            trailing: Text(
+              '14/11/2025',
+              style: TextStyle(color: AppPalette.subtext, fontSize: 12),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPayments() {
+    return ListView(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      children: [
+        const Icon(Icons.payments, size: 48, color: AppPalette.subtext),
+        const SizedBox(height: 12),
+        const Text(
+          'Payment records will show here',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+            color: AppPalette.text,
+          ),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'When you purchase sessions or recharge your wallet, a receipt entry will be listed below. '
+          'Here is an illustrative example:',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: AppPalette.subtext),
+        ),
+        const SizedBox(height: 24),
+        Card(
+          color: AppPalette.cardBg,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: const BorderSide(color: AppPalette.border),
+          ),
+          child: ListTile(
+            leading: const CircleAvatar(
+              backgroundColor: AppPalette.soft,
+              child: Icon(Icons.receipt_long, color: AppPalette.primary),
+            ),
+            title: const Text(
+              '#TXN1204',
+              style: TextStyle(color: AppPalette.text),
+            ),
+            subtitle: const Text('UPI • 499 INR'),
+            trailing: SizedBox(
+              height: 48,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  _buildChatTab(),
-                  _buildCallsTab(upcoming: upcoming, past: past),
-                  _buildWalletTab(walletMinutes),
+                  const Text(
+                    '05/11/2025',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  const SizedBox(height: 4),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.green,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Text(
+                      'Active',
+                      style: TextStyle(color: Colors.white, fontSize: 11),
+                    ),
+                  ),
                 ],
               ),
             ),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSummaryHeader({
-    required int upcomingCount,
-    required int pastCount,
-    required int groupCount,
-    required int walletMinutes,
-  }) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Color(0xFF8B5FBF), Color(0xFF9E8BE3)],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
-        borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(30),
-          bottomRight: Radius.circular(30),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Track your journey across chats, calls, and wallet activity.',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              height: 1.5,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              _SummaryChip(
-                label: 'Upcoming calls',
-                value: upcomingCount.toString(),
-                icon: Icons.call_made,
-              ),
-              const SizedBox(width: 12),
-              _SummaryChip(
-                label: 'Past calls',
-                value: pastCount.toString(),
-                icon: Icons.history,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              _SummaryChip(
-                label: 'Groups joined',
-                value: groupCount.toString(),
-                icon: Icons.groups,
-              ),
-              const SizedBox(width: 12),
-              _SummaryChip(
-                label: 'Wallet minutes',
-                value: walletMinutes.toString(),
-                icon: Icons.account_balance_wallet,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildChatTab() {
-    if (_groups.isEmpty) {
-      return ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(24),
-        children: const [
-          _EmptyMessage(
-            title: 'No support groups yet',
-            message:
-                'Join a support group to start connecting with others. Groups you join will appear here.',
-          ),
-        ],
-      );
-    }
-
-    return ListView.separated(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.all(16),
-      itemCount: _groups.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (context, index) {
-        final group = _groups[index];
-        return Card(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: const Color(0xFFEDE7F6),
-              child: Icon(
-                Icons.groups,
-                color: group.isJoined ? const Color(0xFF8B5FBF) : Colors.grey[700],
-              ),
-            ),
-            title: Text(group.name),
-            subtitle: Text(
-              group.description.isEmpty
-                  ? 'No description provided.'
-                  : group.description,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-            trailing: Switch(
-              value: group.isJoined,
-              onChanged: (value) => _toggleGroup(group, value),
-            ),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const SupportGroupsPage()),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildCallsTab({
-    required List<UpcomingSessionItem> upcoming,
-    required List<UpcomingSessionItem> past,
-  }) {
-    return ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.all(16),
-      children: [
-        _CallSection(
-          title: 'Upcoming sessions',
-          emptyMessage: 'No upcoming sessions. Book one to stay on track.',
-          sessions: upcoming,
-          accentColor: const Color(0xFF4CAF50),
-        ),
-        const SizedBox(height: 24),
-        _CallSection(
-          title: 'Past sessions',
-          emptyMessage: 'Past sessions will appear here after they finish.',
-          sessions: past,
-          accentColor: const Color(0xFF607D8B),
-        ),
-        const SizedBox(height: 24),
-        FilledButton.icon(
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const ScheduleSessionPage()),
-          ),
-          icon: const Icon(Icons.add),
-          label: const Text('Schedule new session'),
         ),
       ],
-    );
-  }
-
-  Widget _buildWalletTab(int walletMinutes) {
-    return ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.all(16),
-      children: [
-        Card(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Current balance',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: Colors.black54,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '$walletMinutes minutes',
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF8B5FBF),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'Use wallet minutes to connect with counsellors or book premium sessions.',
-                  style: TextStyle(color: Colors.grey[700]),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        Card(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Quick recharge',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: Colors.black54,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 12,
-                  children: [10, 20, 30].map((minutes) {
-                    return ChoiceChip(
-                      label: Text('+${minutes}m'),
-                      selected: false,
-                      onSelected: (_) => _recharge(minutes),
-                    );
-                  }).toList(),
-                ),
-                const SizedBox(height: 16),
-        FilledButton(
-          onPressed: _recharging
-              ? null
-              : () async {
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const WalletPage()),
-                  );
-                  if (mounted) {
-                    _load(showLoader: false);
-                  }
-                },
-                  child: _recharging
-                      ? const SizedBox(
-                          height: 18,
-                          width: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Recharge from wallet page'),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        const _EmptyMessage(
-          title: 'No transactions yet',
-          message:
-              'Recharge history will appear here once you add wallet minutes.',
-        ),
-      ],
-    );
-  }
-
-  Future<void> _toggleGroup(SupportGroupItem group, bool join) async {
-    try {
-      final updated = await _api.updateSupportGroupMembership(
-        slug: group.slug,
-        action: join ? SupportGroupAction.join : SupportGroupAction.leave,
-      );
-      if (!mounted) return;
-      setState(() {
-        _groups = _groups
-            .map((item) => item.slug == updated.slug ? updated : item)
-            .toList();
-      });
-    } on ApiClientException catch (error) {
-      _showSnackBar(error.message);
-      _load(showLoader: false);
-    } catch (error) {
-      _showSnackBar('Unable to update group. Please try again. ($error)');
-      _load(showLoader: false);
-    }
-  }
-}
-
-class _SummaryChip extends StatelessWidget {
-  const _SummaryChip({
-    required this.label,
-    required this.value,
-    required this.icon,
-  });
-
-  final String label;
-  final String value;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.15),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          children: [
-            CircleAvatar(
-              backgroundColor: Colors.white.withOpacity(0.2),
-              child: Icon(icon, color: Colors.white),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: const TextStyle(color: Colors.white70, fontSize: 12),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _CallSection extends StatelessWidget {
-  const _CallSection({
-    required this.title,
-    required this.emptyMessage,
-    required this.sessions,
-    required this.accentColor,
-  });
-
-  final String title;
-  final String emptyMessage;
-  final List<UpcomingSessionItem> sessions;
-  final Color accentColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: 16,
-          ),
-        ),
-        const SizedBox(height: 12),
-        if (sessions.isEmpty)
-          _EmptyMessage(title: 'Empty', message: emptyMessage)
-        else
-          ...sessions.map(
-            (session) => Card(
-              shape:
-                  RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              child: ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: accentColor.withOpacity(0.15),
-                  child: Icon(Icons.calendar_today, color: accentColor),
-                ),
-                title: Text(session.title.isEmpty
-                    ? session.sessionType.displayLabel
-                    : session.title),
-                subtitle: Text(
-                  _formatDateTime(session.startTime),
-                ),
-                trailing: session.notes.isNotEmpty
-                    ? const Icon(Icons.note_alt_outlined)
-                    : null,
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-
-  String _formatDateTime(DateTime dateTime) {
-    final local = dateTime.toLocal();
-    return '${_two(local.day)}/${_two(local.month)}/${local.year} • ${_two(local.hour)}:${_two(local.minute)}';
-  }
-
-  String _two(int number) => number.toString().padLeft(2, '0');
-}
-
-class _EmptyMessage extends StatelessWidget {
-  const _EmptyMessage({
-    required this.title,
-    required this.message,
-  });
-
-  final String title;
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontWeight: FontWeight.w600,
-              color: Colors.black87,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            message,
-            style: const TextStyle(color: Colors.black54),
-          ),
-        ],
-      ),
     );
   }
 }

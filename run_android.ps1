@@ -1,243 +1,254 @@
-# Runs the Django backend and Flutter frontend on Android (emulator or device).
-# Usage: .\run_android.ps1 [-Release] [-Device <deviceId>] [-LanIp <ip>]
-
 param(
     [switch]$Release,
-    [string]$Device = "",
-    [string]$LanIp = ""
+    [string]$DeviceId,
+    [string]$LanIp,
+    [int]$BackendPort = 8000,
+    [int]$DeviceBootTimeoutSeconds = 240,
+    [switch]$SkipEmulatorLaunch,
+    [ValidateSet("host", "angle_indirect", "swiftshader_indirect")]
+    [string]$GpuMode = "host"
 )
 
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version 3
 
-$projectRoot = $PSScriptRoot
-$backendPath = Join-Path $projectRoot 'backend'
-$flutterPath = Join-Path $projectRoot 'flutter_app'
-$pythonExe = Join-Path $backendPath 'venv\Scripts\python.exe'
-
-if (!(Test-Path $pythonExe)) {
-    Write-Error "Python virtualenv not found at $pythonExe. Run 'python -m venv venv' inside backend and install requirements."
+function Write-Step {
+    param([string]$Message)
+    Write-Host ""
+    Write-Host "➡ $Message" -ForegroundColor Cyan
 }
 
-if (!(Test-Path (Join-Path $flutterPath 'pubspec.yaml'))) {
-    Write-Error "Flutter project not found at $flutterPath."
-}
-
-if (-not (Get-Command "flutter" -ErrorAction SilentlyContinue)) {
-    Write-Error "Flutter command not found in PATH. Ensure Flutter SDK is installed and added to PATH."
-}
-
-function Add-PathIfMissing {
-    param(
-        [string]$PathToAdd
-    )
-
-    if ([string]::IsNullOrWhiteSpace($PathToAdd)) {
-        return
-    }
-
-    if (-not (Test-Path $PathToAdd)) {
-        return
-    }
-
-    $pathParts = $env:PATH.Split([System.IO.Path]::PathSeparator)
-    if ($pathParts -notcontains $PathToAdd) {
-        $env:PATH = "$env:PATH$([System.IO.Path]::PathSeparator)$PathToAdd"
+function Ensure-Path {
+    param([string]$Path, [string]$Description)
+    if (-not (Test-Path $Path)) {
+        throw "$Description not found at '$Path'."
     }
 }
 
-function Ensure-AndroidTooling {
-    $sdkRoot = if (-not [string]::IsNullOrWhiteSpace($env:ANDROID_HOME)) {
-        $env:ANDROID_HOME
-    } else {
-        Join-Path $env:LOCALAPPDATA 'Android\Sdk'
+function Ensure-Command {
+    param([string]$Command, [string]$Hint)
+    if (-not (Get-Command $Command -ErrorAction SilentlyContinue)) {
+        if (-not $Hint) { $Hint = "Install $Command and add it to PATH." }
+        throw "Required command '$Command' not found. $Hint"
     }
-
-    if (-not (Test-Path $sdkRoot)) {
-        Write-Warning "Android SDK root '$sdkRoot' not found. Ensure the Android SDK is installed."
-    }
-
-    $pathsToAdd = @(
-        Join-Path $sdkRoot 'platform-tools'
-        Join-Path $sdkRoot 'emulator'
-        Join-Path $sdkRoot 'tools\bin'
-    )
-
-    foreach ($path in $pathsToAdd) {
-        Add-PathIfMissing -PathToAdd $path
-    }
-
-    if (-not (Get-Command "adb" -ErrorAction SilentlyContinue)) {
-        Write-Error "adb command not found. Install Android SDK platform-tools and ensure they are on PATH."
-    }
-
-    $script:AndroidSdkRoot = $sdkRoot
 }
 
-Ensure-AndroidTooling
+function Add-EnvPath {
+    param([string]$PathToAdd)
+    if ([string]::IsNullOrWhiteSpace($PathToAdd)) { return }
+    if (-not (Test-Path $PathToAdd)) { return }
+    if ($env:PATH.Split([IO.Path]::PathSeparator) -notcontains $PathToAdd) {
+        $env:PATH = "$env:PATH$([IO.Path]::PathSeparator)$PathToAdd"
+    }
+}
+
+function Get-AndroidSdkRoot {
+    if ($env:ANDROID_HOME) { return $env:ANDROID_HOME }
+    if ($env:ANDROID_SDK_ROOT) { return $env:ANDROID_SDK_ROOT }
+    return Join-Path $env:LOCALAPPDATA "Android\Sdk"
+}
 
 function Get-AdbDevices {
-    $devicesOutput = & adb devices 2>$null
-    $lines = ($devicesOutput | Out-String).Trim().Split("`r`n", [System.StringSplitOptions]::RemoveEmptyEntries)
-
-    $devices = @()
-    foreach ($line in $lines) {
+    $output = (& adb devices) 2>$null
+    foreach ($line in $output) {
         $trimmed = $line.Trim()
         if (-not $trimmed) { continue }
-        if ($trimmed -like 'List of devices*') { continue }
-
+        if ($trimmed -like "List of devices*") { continue }
         $parts = $trimmed -split "\s+"
         if ($parts.Count -ge 2) {
-            $devices += [PSCustomObject]@{
+            [PSCustomObject]@{
                 Id     = $parts[0]
                 Status = $parts[1]
             }
         }
     }
-
-    return @($devices | Where-Object { $_.Status -eq 'device' })
 }
 
-function Get-DeviceDisplayName {
+function Wait-ForDeviceReady {
     param(
-        [string]$DeviceId
+        [string]$DeviceId,
+        [int]$TimeoutSeconds = 240
     )
 
-    if ([string]::IsNullOrWhiteSpace($DeviceId)) {
-        return $DeviceId
-    }
-
-    try {
-        $name = (& adb -s $DeviceId shell getprop ro.product.model 2>$null | Out-String).Trim()
-        if (-not [string]::IsNullOrWhiteSpace($name)) {
-            return $name
+    $timer = [Diagnostics.Stopwatch]::StartNew()
+    while ($timer.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+        $state = Get-AdbDevices | Where-Object { $_.Id -eq $DeviceId -and $_.Status -eq "device" }
+        if ($state) {
+            $booted = (& adb -s $DeviceId shell getprop sys.boot_completed 2>$null | Out-String).Trim()
+            if ($booted -eq "1") { return $true }
         }
-    } catch {
+        Start-Sleep -Seconds 3
     }
-
-    return $DeviceId
+    return $false
 }
 
-function Ensure-AndroidTarget {
+function Launch-Emulator {
     param(
-        [string]$Device
+        [string]$EmulatorExecutable,
+        [string]$GpuMode,
+        [int]$TimeoutSeconds
     )
 
-    $sdkRoot = if ($script:AndroidSdkRoot) { $script:AndroidSdkRoot } else { Join-Path $env:LOCALAPPDATA 'Android\Sdk' }
-
-    if (-not [string]::IsNullOrWhiteSpace($Device)) {
-        $connected = Get-AdbDevices
-        $matched = $connected | Where-Object { $_.Id -eq $Device }
-        if (-not $matched) {
-            Write-Warning "Specified device '$Device' is not currently detected. Attempting to proceed, but the run may fail."
-        }
-        $name = Get-DeviceDisplayName -DeviceId $Device
-        return [PSCustomObject]@{ Id = $Device; Name = $name }
+    $avdList = (& $EmulatorExecutable -list-avds 2>$null | Out-String).Trim().Split("`r`n", [System.StringSplitOptions]::RemoveEmptyEntries)
+    if (-not $avdList -or $avdList.Count -eq 0) {
+        throw "No Android Virtual Devices defined. Create one from Android Studio."
     }
 
-    $connectedDevices = Get-AdbDevices
-    if ($connectedDevices.Count -gt 0) {
-        $device = $connectedDevices[0]
-        $name = Get-DeviceDisplayName -DeviceId $device.Id
-        Write-Host "Using Android device: $name ($($device.Id))" -ForegroundColor Yellow
-        return [PSCustomObject]@{ Id = $device.Id; Name = $name }
-    }
+    $avdName = $avdList[0].Trim()
+    Write-Step "Launching emulator '$avdName' (GPU: $GpuMode)"
 
-    $emulatorExecutable = Join-Path $sdkRoot 'emulator\emulator.exe'
-    if (-not (Test-Path $emulatorExecutable)) {
-        throw "No Android device/emulator connected and emulator executable not found at '$emulatorExecutable'. Install the Android Emulator or connect a device."
-    }
+    $emuArgs = @(
+        "-avd", $avdName,
+        "-netfast",
+        "-no-snapshot-save",
+        "-gpu", $GpuMode
+    )
 
-    $availableAvds = (& $emulatorExecutable -list-avds 2>$null | Out-String).Trim().Split("`r`n", [System.StringSplitOptions]::RemoveEmptyEntries)
-    if (-not $availableAvds -or $availableAvds.Count -eq 0) {
-        throw "No Android device/emulator connected and no Android Virtual Devices configured. Create an AVD from Android Studio's Device Manager."
-    }
+    $process = Start-Process -FilePath $EmulatorExecutable -ArgumentList $emuArgs -PassThru
+    Start-Sleep -Seconds 5
 
-    $avdName = $availableAvds[0].Trim()
-    Write-Warning "No Android devices detected. Launching emulator '$avdName'..."
-    Start-Process -FilePath $emulatorExecutable -ArgumentList @('-avd', $avdName) | Out-Null
-
-    Write-Host "Waiting for emulator to come online..." -ForegroundColor Yellow
-    & adb wait-for-device | Out-Null
-
-    $maxAttempts = 120
-    for ($attempt = 0; $attempt -lt $maxAttempts; $attempt++) {
-        Start-Sleep -Seconds 2
-        try {
-            $bootCompleted = (& adb shell getprop sys.boot_completed 2>$null | Out-String).Trim()
-            if ($bootCompleted -eq '1') {
-                break
+    $timer = [Diagnostics.Stopwatch]::StartNew()
+    while ($timer.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+        $device = Get-AdbDevices | Select-Object -First 1
+        if ($device) {
+            if (Wait-ForDeviceReady -DeviceId $device.Id -TimeoutSeconds ($TimeoutSeconds - [int]$timer.Elapsed.TotalSeconds)) {
+                return [PSCustomObject]@{
+                    Id       = $device.Id
+                    Process  = $process
+                    Launched = $true
+                }
             }
-        } catch {
-            Start-Sleep -Seconds 2
+            break
         }
+        Start-Sleep -Seconds 3
     }
 
-    if ($attempt -ge $maxAttempts) {
-        throw "Emulator launch timed out after $($maxAttempts * 2) seconds."
-    }
-
-    $connectedDevices = Get-AdbDevices
-    if ($connectedDevices.Count -eq 0) {
-        throw "Emulator launched but no Android device detected over adb."
-    }
-
-    $device = $connectedDevices[0]
-    $name = Get-DeviceDisplayName -DeviceId $device.Id
-    Write-Host "Using Android device: $name ($($device.Id))" -ForegroundColor Yellow
-    return [PSCustomObject]@{ Id = $device.Id; Name = $name }
+    $process | Stop-Process -Force -ErrorAction SilentlyContinue
+    throw "Emulator failed to boot within $TimeoutSeconds seconds. Check emulator logs (missing opengl32sw.dll is common)."
 }
 
-$targetDevice = Ensure-AndroidTarget -Device $Device
-$target = $targetDevice.Id
+function Resolve-Device {
+    param(
+        [string]$DeviceId,
+        [switch]$AllowLaunch,
+        [string]$EmulatorExecutable,
+        [string]$GpuMode,
+        [int]$TimeoutSeconds
+    )
 
-Write-Host "Starting Django backend..." -ForegroundColor Cyan
+    if ($DeviceId) {
+        Write-Step "Targeting requested device '$DeviceId'"
+        if (Wait-ForDeviceReady -DeviceId $DeviceId -TimeoutSeconds $TimeoutSeconds) {
+            return [PSCustomObject]@{ Id = $DeviceId; Launched = $false; Process = $null }
+        }
+        throw "Device '$DeviceId' not detected over adb."
+    }
 
-$backendProcess = Start-Process -FilePath $pythonExe -ArgumentList 'manage.py', 'runserver', '0.0.0.0:8000' -WorkingDirectory $backendPath -NoNewWindow -PassThru
+    $connected = Get-AdbDevices | Where-Object { $_.Status -eq "device" } | Select-Object -First 1
+    if ($connected) {
+        Write-Step "Using connected device $($connected.Id)"
+        return [PSCustomObject]@{ Id = $connected.Id; Launched = $false; Process = $null }
+    }
 
+    if (-not $AllowLaunch) {
+        throw "No Android devices detected and emulator launch disabled."
+    }
+
+    return Launch-Emulator -EmulatorExecutable $EmulatorExecutable -GpuMode $GpuMode -TimeoutSeconds $TimeoutSeconds
+}
+
+function Resolve-LanIp {
+    param([string]$Preferred, [string]$DeviceId)
+
+    if ($Preferred) { return $Preferred }
+    if ($DeviceId -like "emulator-*") { return "10.0.2.2" }
+
+    $ip = Get-NetIPAddress -AddressFamily IPv4 |
+        Where-Object {
+            $_.IPAddress -notlike "169.254.*" -and
+            $_.IPAddress -ne "127.0.0.1" -and
+            $_.InterfaceAlias -notlike "*Virtual*"
+        } |
+        Sort-Object SkipAsSource, PrefixOrigin |
+        Select-Object -First 1
+
+    if ($ip) { return $ip.IPAddress }
+    return "127.0.0.1"
+}
+
+function Stop-ProcessSafe {
+    param([Diagnostics.Process]$Process)
+    if (-not $Process) { return }
+    try {
+        if (-not $Process.HasExited) {
+            $Process.CloseMainWindow() | Out-Null
+            Start-Sleep -Milliseconds 300
+        }
+        if (-not $Process.HasExited) {
+            $Process.Kill()
+        }
+        $Process.WaitForExit()
+    } catch {
+        # ignore
+    }
+}
+
+$projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (-not $projectRoot) { $projectRoot = Get-Location }
+
+$backendDir = Join-Path $projectRoot "backend"
+$flutterDir = Join-Path $projectRoot "flutter_app"
+$pythonExe  = Join-Path $backendDir "venv\Scripts\python.exe"
+$managePy   = Join-Path $backendDir "manage.py"
+
+Write-Step "Validating project structure"
+Ensure-Path $backendDir "Backend directory"
+Ensure-Path $flutterDir "Flutter directory"
+Ensure-Path $pythonExe  "Backend virtualenv Python"
+Ensure-Path $managePy   "manage.py"
+Ensure-Path (Join-Path $flutterDir "pubspec.yaml") "Flutter pubspec"
+
+Ensure-Command "flutter" "Install Flutter SDK and ensure 'flutter' is in PATH."
+
+$sdkRoot = Get-AndroidSdkRoot
+Ensure-Path $sdkRoot "Android SDK root"
+Add-EnvPath (Join-Path $sdkRoot "platform-tools")
+Add-EnvPath (Join-Path $sdkRoot "emulator")
+Ensure-Command "adb" "Install Android platform-tools from the SDK Manager."
+
+$emulatorExe = Join-Path $sdkRoot "emulator\emulator.exe"
+Ensure-Path $emulatorExe "Android emulator executable"
+
+$softwareGl = Join-Path $sdkRoot "emulator\lib64\opengl32sw.dll"
+if (-not (Test-Path $softwareGl)) {
+    Write-Warning "opengl32sw.dll missing. Install/repair the 'Android Emulator' package if the emulator fails to start."
+}
+
+Write-Step "Resolving Android target"
+$deviceInfo = Resolve-Device -DeviceId $DeviceId -AllowLaunch:(-not $SkipEmulatorLaunch) -EmulatorExecutable $emulatorExe -GpuMode $GpuMode -TimeoutSeconds $DeviceBootTimeoutSeconds
+$targetDeviceId = $deviceInfo.Id
+
+Write-Step "Starting Django backend"
+$backendArgs = @("manage.py", "runserver", "0.0.0.0:$BackendPort")
+$backendProcess = Start-Process -FilePath $pythonExe -WorkingDirectory $backendDir -ArgumentList $backendArgs -NoNewWindow -PassThru
 Start-Sleep -Seconds 3
 
-Write-Host "Preparing to launch Flutter on Android..." -ForegroundColor Cyan
+Write-Step "Running Flutter app"
+$lanIp = Resolve-LanIp -Preferred $LanIp -DeviceId $targetDeviceId
+$backendUrl = "http://$($lanIp):$BackendPort/api"
+Write-Host "Backend URL injected into Flutter: $backendUrl" -ForegroundColor Yellow
 
-$flutterArgs = @('run', '-d')
+$flutterArgs = @("run", "-d", $targetDeviceId, "--dart-define=BACKEND_BASE_URL=$backendUrl")
+if ($Release) { $flutterArgs += "--release" }
 
-$flutterArgs += $target
-
-if ($Release) {
-    $flutterArgs += '--release'
-}
-
-if (-not [string]::IsNullOrWhiteSpace($LanIp)) {
-    Write-Host "Using custom LAN IP for backend access: http://$LanIp:8000/api" -ForegroundColor Yellow
-} else {
-    Write-Host "No LAN IP provided. Defaulting backend base URL to emulator loopback (10.0.2.2)." -ForegroundColor Yellow
-    $LanIp = "10.0.2.2"
-}
-
-$backendUrl = "http://$LanIp:8000/api"
-$flutterArgs += "--dart-define=BACKEND_BASE_URL=$backendUrl"
-
-Push-Location $flutterPath
+Push-Location $flutterDir
 try {
     flutter @flutterArgs
-}
-finally {
+} finally {
     Pop-Location
-    Write-Host "Stopping Django backend..." -ForegroundColor Yellow
-    if ($backendProcess -and -not $backendProcess.HasExited) {
-        try {
-            $backendProcess.CloseMainWindow() | Out-Null
-            if (-not $backendProcess.HasExited) {
-                Start-Sleep -Seconds 1
-                $backendProcess.Kill()
-            }
-        }
-        catch {
-            if (-not $backendProcess.HasExited) {
-                $backendProcess.Kill()
-            }
-        }
-        $backendProcess.WaitForExit()
+    Write-Step "Cleaning up"
+    Stop-ProcessSafe -Process $backendProcess
+    if ($deviceInfo.Launched) {
+        Stop-ProcessSafe -Process $deviceInfo.Process
     }
 }
-
-Write-Host "All processes stopped." -ForegroundColor Green
